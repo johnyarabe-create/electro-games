@@ -5,13 +5,12 @@ const AdminModal = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [questions, setQuestions] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [tipos, setTipos] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   
   // Filtros
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
-  const [filtroTipo, setFiltroTipo] = useState('todos');
+  const [filtroDepartamento, setFiltroDepartamento] = useState('todos');
   const [filtroRol, setFiltroRol] = useState('todos');
   
   // Estados para CRUD
@@ -22,11 +21,18 @@ const AdminModal = ({ isOpen, onClose }) => {
     options: ['', '', '', ''],
     correct_answer: 0,
     category_id: '',
-    tipo: 'ventas',
+    departamento: 'ventas',
     rol: 'asesor',
     difficulty: 1,
     xp_reward: 10
   });
+
+  const departamentos = [
+    { id: 'ventas', name: 'Ventas', color: '#3B82F6' },
+    { id: 'garantia', name: 'Garantía', color: '#F59E0B' },
+    { id: 'atencion', name: 'Atención al Cliente', color: '#10B981' },
+    { id: 'seguridad', name: 'Seguridad', color: '#EF4444' }
+  ];
 
   useEffect(() => {
     if (isOpen) {
@@ -37,14 +43,12 @@ const AdminModal = ({ isOpen, onClose }) => {
   const fetchData = async () => {
     setLoading(true);
     
-    const [{ data: catData }, { data: tiposData }, { data: questionsData }] = await Promise.all([
+    const [{ data: catData }, { data: questionsData }] = await Promise.all([
       supabase.from('categories').select('*'),
-      supabase.from('tipos').select('*'),
       supabase.from('questions').select('*, categories(name)').order('id')
     ]);
     
     setCategories(catData || []);
-    setTipos(tiposData || []);
     setQuestions(questionsData || []);
     
     const { data: sessionsData } = await supabase
@@ -76,9 +80,9 @@ const AdminModal = ({ isOpen, onClose }) => {
   // Filtrar preguntas
   const preguntasFiltradas = questions.filter(q => {
     const matchCategoria = filtroCategoria === 'todas' || q.category_id === filtroCategoria;
-    const matchTipo = filtroTipo === 'todos' || q.tipo === filtroTipo;
+    const matchDepto = filtroDepartamento === 'todos' || q.departamento === filtroDepartamento;
     const matchRol = filtroRol === 'todos' || q.rol === filtroRol;
-    return matchCategoria && matchTipo && matchRol;
+    return matchCategoria && matchDepto && matchRol;
   });
 
   // CRUD
@@ -114,7 +118,7 @@ const AdminModal = ({ isOpen, onClose }) => {
       options: Array.isArray(question.options) ? question.options : JSON.parse(question.options),
       correct_answer: question.correct_answer,
       category_id: question.category_id,
-      tipo: question.tipo || 'ventas',
+      departamento: question.departamento || 'ventas',
       rol: question.rol || 'asesor',
       difficulty: question.difficulty,
       xp_reward: question.xp_reward
@@ -134,7 +138,7 @@ const AdminModal = ({ isOpen, onClose }) => {
       options: ['', '', '', ''],
       correct_answer: 0,
       category_id: categories[0]?.id || '',
-      tipo: 'ventas',
+      departamento: 'ventas',
       rol: 'asesor',
       difficulty: 1,
       xp_reward: 10
@@ -184,12 +188,12 @@ const AdminModal = ({ isOpen, onClose }) => {
                 <QuestionsTab 
                   questions={preguntasFiltradas}
                   categories={categories}
-                  tipos={tipos}
+                  departamentos={departamentos}
                   filtroCategoria={filtroCategoria}
-                  filtroTipo={filtroTipo}
+                  filtroDepartamento={filtroDepartamento}
                   filtroRol={filtroRol}
                   onFiltroCategoria={setFiltroCategoria}
-                  onFiltroTipo={setFiltroTipo}
+                  onFiltroDepartamento={setFiltroDepartamento}
                   onFiltroRol={setFiltroRol}
                   showForm={showForm}
                   formData={formData}
@@ -229,8 +233,8 @@ const DashboardTab = ({ stats }) => (
 );
 
 const QuestionsTab = ({ 
-  questions, categories, tipos, filtroCategoria, filtroTipo, filtroRol,
-  onFiltroCategoria, onFiltroTipo, onFiltroRol,
+  questions, categories, departamentos, filtroCategoria, filtroDepartamento, filtroRol,
+  onFiltroCategoria, onFiltroDepartamento, onFiltroRol,
   showForm, formData, editingQuestion, onNew, onEdit, onDelete, onSave, onCancel,
   onFormChange, onOptionChange
 }) => (
@@ -244,9 +248,9 @@ const QuestionsTab = ({
         {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
       </select>
       
-      <select value={filtroTipo} onChange={(e) => onFiltroTipo(e.target.value)} style={selectStyle}>
-        <option value="todos">🏷️ Todos los tipos</option>
-        {tipos.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+      <select value={filtroDepartamento} onChange={(e) => onFiltroDepartamento(e.target.value)} style={selectStyle}>
+        <option value="todos">🏢 Todos los departamentos</option>
+        {departamentos.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
       </select>
       
       <select value={filtroRol} onChange={(e) => onFiltroRol(e.target.value)} style={selectStyle}>
@@ -279,9 +283,9 @@ const QuestionsTab = ({
             </select>
           </div>
           <div>
-            <label>Tipo:</label>
-            <select value={formData.tipo} onChange={(e) => onFormChange({...formData, tipo: e.target.value})} style={{ width: '100%', padding: '0.5rem' }}>
-              {tipos.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+            <label>Departamento:</label>
+            <select value={formData.departamento} onChange={(e) => onFormChange({...formData, departamento: e.target.value})} style={{ width: '100%', padding: '0.5rem' }}>
+              {departamentos.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </div>
           <div>
@@ -330,7 +334,7 @@ const QuestionsTab = ({
           <tr style={{ background: '#f3f4f6' }}>
             <th style={thStyle}>Pregunta</th>
             <th style={thStyle}>Categoría</th>
-            <th style={thStyle}>Tipo</th>
+            <th style={thStyle}>Depto</th>
             <th style={thStyle}>Rol</th>
             <th style={thStyle}>Dif.</th>
             <th style={thStyle}>Acciones</th>
@@ -341,7 +345,7 @@ const QuestionsTab = ({
             <tr key={q.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
               <td style={tdStyle}>{q.question_text.substring(0, 50)}...</td>
               <td style={tdStyle}>{q.categories?.name}</td>
-              <td style={tdStyle}><span style={badgeStyle(q.tipo)}>{q.tipo}</span></td>
+              <td style={tdStyle}><span style={deptoBadgeStyle(q.departamento)}>{q.departamento}</span></td>
               <td style={tdStyle}>{q.rol === 'gerente' ? '👔' : '🎧'} {q.rol}</td>
               <td style={tdStyle}>{'⭐'.repeat(q.difficulty)}</td>
               <td style={tdStyle}>
@@ -395,7 +399,14 @@ const cancelButtonStyle = { padding: '0.75rem 1.5rem', background: '#6b7280', co
 const thStyle = { padding: '1rem', textAlign: 'left', fontWeight: '600', background: '#f3f4f6' };
 const tdStyle = { padding: '1rem' };
 const actionButtonStyle = (color) => ({ padding: '0.5rem', marginRight: '0.5rem', background: color, color: 'white', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' });
-const badgeStyle = (tipo) => ({ background: {ventas: '#3B82F6', atencion: '#10B981', seguridad: '#EF4444', garantias: '#F59E0B', producto: '#8B5CF6'}[tipo] || '#6b7280', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.75rem' });
+const deptoBadgeStyle = (depto) => ({ 
+  background: {ventas: '#3B82F6', garantia: '#F59E0B', atencion: '#10B981', seguridad: '#EF4444'}[depto] || '#6b7280', 
+  color: 'white', 
+  padding: '0.25rem 0.5rem', 
+  borderRadius: '0.25rem', 
+  fontSize: '0.75rem',
+  textTransform: 'capitalize'
+});
 const analysisCardStyle = (score) => ({ background: '#f9fafb', padding: '1.5rem', borderRadius: '0.75rem', marginBottom: '1rem', borderLeft: '4px solid ' + (score >= 80 ? '#10B981' : score >= 60 ? '#F59E0B' : '#EF4444') });
 
 export default AdminModal;
