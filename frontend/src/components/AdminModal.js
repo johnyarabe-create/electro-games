@@ -5,6 +5,12 @@ const AdminModal = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [questions, setQuestions] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [departamentos, setDepartamentos] = useState([
+    { id: 'ventas', name: 'Ventas', color: '#3B82F6' },
+    { id: 'garantia', name: 'Garantía', color: '#F59E0B' },
+    { id: 'atencion', name: 'Atención al Cliente', color: '#10B981' },
+    { id: 'seguridad', name: 'Seguridad', color: '#EF4444' }
+  ]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   
@@ -13,7 +19,7 @@ const AdminModal = ({ isOpen, onClose }) => {
   const [filtroDepartamento, setFiltroDepartamento] = useState('todos');
   const [filtroRol, setFiltroRol] = useState('todos');
   
-  // Estados para CRUD
+  // Estados para CRUD preguntas
   const [editingQuestion, setEditingQuestion] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
@@ -27,12 +33,15 @@ const AdminModal = ({ isOpen, onClose }) => {
     xp_reward: 10
   });
 
-  const departamentos = [
-    { id: 'ventas', name: 'Ventas', color: '#3B82F6' },
-    { id: 'garantia', name: 'Garantía', color: '#F59E0B' },
-    { id: 'atencion', name: 'Atención al Cliente', color: '#10B981' },
-    { id: 'seguridad', name: 'Seguridad', color: '#EF4444' }
-  ];
+  // Estados para CRUD categorías
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [categoryForm, setCategoryForm] = useState({ name: '', description: '', color: '#3B82F6' });
+
+  // Estados para CRUD departamentos
+  const [editingDepto, setEditingDepto] = useState(null);
+  const [showDeptoForm, setShowDeptoForm] = useState(false);
+  const [deptoForm, setDeptoForm] = useState({ id: '', name: '', color: '#3B82F6' });
 
   useEffect(() => {
     if (isOpen) {
@@ -85,7 +94,7 @@ const AdminModal = ({ isOpen, onClose }) => {
     return matchCategoria && matchDepto && matchRol;
   });
 
-  // CRUD
+  // CRUD Preguntas
   const saveQuestion = async () => {
     const questionData = {
       ...formData,
@@ -126,6 +135,59 @@ const AdminModal = ({ isOpen, onClose }) => {
     setShowForm(true);
   };
 
+  // CRUD Categorías
+  const saveCategory = async () => {
+    if (editingCategory) {
+      await supabase.from('categories').update(categoryForm).eq('id', editingCategory.id);
+    } else {
+      await supabase.from('categories').insert([categoryForm]);
+    }
+    setShowCategoryForm(false);
+    setEditingCategory(null);
+    setCategoryForm({ name: '', description: '', color: '#3B82F6' });
+    fetchData();
+  };
+
+  const deleteCategory = async (id) => {
+    const count = questions.filter(q => q.category_id === id).length;
+    if (count > 0) {
+      alert(`No puedes eliminar esta categoría. Tiene ${count} preguntas asignadas.`);
+      return;
+    }
+    if (!confirm('¿Eliminar esta categoría?')) return;
+    await supabase.from('categories').delete().eq('id', id);
+    fetchData();
+  };
+
+  const editCategory = (cat) => {
+    setEditingCategory(cat);
+    setCategoryForm({ name: cat.name, description: cat.description || '', color: cat.color || '#3B82F6' });
+    setShowCategoryForm(true);
+  };
+
+  // CRUD Departamentos
+  const saveDepto = () => {
+    if (editingDepto) {
+      setDepartamentos(prev => prev.map(d => d.id === editingDepto.id ? { ...deptoForm, id: deptoForm.id.toLowerCase().replace(/\s+/g, '_') } : d));
+    } else {
+      const newId = deptoForm.id.toLowerCase().replace(/\s+/g, '_');
+      setDepartamentos(prev => [...prev, { ...deptoForm, id: newId }]);
+    }
+    setShowDeptoForm(false);
+    setEditingDepto(null);
+    setDeptoForm({ id: '', name: '', color: '#3B82F6' });
+  };
+
+  const deleteDepto = (id) => {
+    const count = questions.filter(q => q.departamento === id).length;
+    if (count > 0) {
+      alert(`No puedes eliminar este departamento. Tiene ${count} preguntas asignadas.`);
+      return;
+    }
+    if (!confirm('¿Eliminar este departamento?')) return;
+    setDepartamentos(prev => prev.filter(d => d.id !== id));
+  };
+
   const newQuestion = () => {
     setEditingQuestion(null);
     resetForm();
@@ -138,7 +200,7 @@ const AdminModal = ({ isOpen, onClose }) => {
       options: ['', '', '', ''],
       correct_answer: 0,
       category_id: categories[0]?.id || '',
-      departamento: 'ventas',
+      departamento: departamentos[0]?.id || 'ventas',
       rol: 'asesor',
       difficulty: 1,
       xp_reward: 10
@@ -173,7 +235,8 @@ const AdminModal = ({ isOpen, onClose }) => {
           <h2 style={{ marginBottom: '2rem' }}>⚙️ Admin</h2>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')}>📊 Dashboard</TabButton>
-            <TabButton active={activeTab === 'questions'} onClick={() => setActiveTab('questions')}>❓ Preguntas ({preguntasFiltradas.length})</TabButton>
+            <TabButton active={activeTab === 'questions'} onClick={() => setActiveTab('questions')}>❓ Preguntas</TabButton>
+            <TabButton active={activeTab === 'estructura'} onClick={() => setActiveTab('estructura')}>🏗️ Categorías y Deptos</TabButton>
             <TabButton active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')}>🧠 Análisis IA</TabButton>
           </nav>
           <button onClick={onClose} style={closeButtonStyle}>✕ Cerrar</button>
@@ -207,6 +270,31 @@ const AdminModal = ({ isOpen, onClose }) => {
                   onOptionChange={updateOption}
                 />
               )}
+              {activeTab === 'estructura' && (
+                <EstructuraTab 
+                  categories={categories}
+                  departamentos={departamentos}
+                  questions={questions}
+                  showCategoryForm={showCategoryForm}
+                  showDeptoForm={showDeptoForm}
+                  categoryForm={categoryForm}
+                  deptoForm={deptoForm}
+                  editingCategory={editingCategory}
+                  editingDepto={editingDepto}
+                  onNewCategory={() => { setEditingCategory(null); setCategoryForm({ name: '', description: '', color: '#3B82F6' }); setShowCategoryForm(true); }}
+                  onNewDepto={() => { setEditingDepto(null); setDeptoForm({ id: '', name: '', color: '#3B82F6' }); setShowDeptoForm(true); }}
+                  onEditCategory={editCategory}
+                  onEditDepto={(d) => { setEditingDepto(d); setDeptoForm({ ...d }); setShowDeptoForm(true); }}
+                  onDeleteCategory={deleteCategory}
+                  onDeleteDepto={deleteDepto}
+                  onSaveCategory={saveCategory}
+                  onSaveDepto={saveDepto}
+                  onCancelCategory={() => { setShowCategoryForm(false); setEditingCategory(null); }}
+                  onCancelDepto={() => { setShowDeptoForm(false); setEditingDepto(null); }}
+                  onCategoryFormChange={setCategoryForm}
+                  onDeptoFormChange={setDeptoForm}
+                />
+              )}
               {activeTab === 'analytics' && <AnalyticsTab stats={stats} analyzeUser={analyzeUser} />}
             </>
           )}
@@ -216,7 +304,7 @@ const AdminModal = ({ isOpen, onClose }) => {
   );
 };
 
-// Sub-componentes
+// Sub-componentes (simplificados para el ejemplo)
 const TabButton = ({ active, onClick, children }) => (
   <button onClick={onClick} style={tabButtonStyle(active)}>{children}</button>
 );
@@ -255,7 +343,7 @@ const QuestionsTab = ({
       
       <select value={filtroRol} onChange={(e) => onFiltroRol(e.target.value)} style={selectStyle}>
         <option value="todos">👥 Todos los roles</option>
-        <option value="asesor">🎧 Asesor de Ventas</option>
+        <option value="asesor">🎧 Asesor</option>
         <option value="gerente">👔 Gerente</option>
       </select>
       
@@ -308,21 +396,6 @@ const QuestionsTab = ({
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-          <div>
-            <label>Dificultad:</label>
-            <select value={formData.difficulty} onChange={(e) => onFormChange({...formData, difficulty: parseInt(e.target.value)})} style={{ width: '100%', padding: '0.5rem' }}>
-              <option value={1}>⭐ Fácil</option>
-              <option value={2}>⭐⭐ Medio</option>
-              <option value={3}>⭐⭐⭐ Difícil</option>
-            </select>
-          </div>
-          <div>
-            <label>XP:</label>
-            <input type="number" value={formData.xp_reward} onChange={(e) => onFormChange({...formData, xp_reward: parseInt(e.target.value)})} style={{ width: '100%', padding: '0.5rem' }} />
-          </div>
-        </div>
-
         <div style={{ display: 'flex', gap: '1rem' }}>
           <button onClick={onSave} style={saveButtonStyle}>💾 Guardar</button>
           <button onClick={onCancel} style={cancelButtonStyle}>❌ Cancelar</button>
@@ -336,7 +409,6 @@ const QuestionsTab = ({
             <th style={thStyle}>Categoría</th>
             <th style={thStyle}>Depto</th>
             <th style={thStyle}>Rol</th>
-            <th style={thStyle}>Dif.</th>
             <th style={thStyle}>Acciones</th>
           </tr>
         </thead>
@@ -347,7 +419,6 @@ const QuestionsTab = ({
               <td style={tdStyle}>{q.categories?.name}</td>
               <td style={tdStyle}><span style={deptoBadgeStyle(q.departamento)}>{q.departamento}</span></td>
               <td style={tdStyle}>{q.rol === 'gerente' ? '👔' : '🎧'} {q.rol}</td>
-              <td style={tdStyle}>{'⭐'.repeat(q.difficulty)}</td>
               <td style={tdStyle}>
                 <button onClick={() => onEdit(q)} style={actionButtonStyle('#3B82F6')}>✏️</button>
                 <button onClick={() => onDelete(q.id)} style={actionButtonStyle('#EF4444')}>🗑️</button>
@@ -357,6 +428,125 @@ const QuestionsTab = ({
         </tbody>
       </table>
     )}
+  </div>
+);
+
+const EstructuraTab = ({ 
+  categories, departamentos, questions,
+  showCategoryForm, showDeptoForm, categoryForm, deptoForm,
+  editingCategory, editingDepto,
+  onNewCategory, onNewDepto, onEditCategory, onEditDepto,
+  onDeleteCategory, onDeleteDepto, onSaveCategory, onSaveDepto,
+  onCancelCategory, onCancelDepto, onCategoryFormChange, onDeptoFormChange
+}) => (
+  <div>
+    <h2 style={{ marginBottom: '1.5rem' }}>🏗️ Categorías y Departamentos</h2>
+    
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+      {/* Categorías */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h3>📁 Categorías de Productos</h3>
+          {!showCategoryForm && <button onClick={onNewCategory} style={newButtonStyle}>+ Nueva</button>}
+        </div>
+        
+        {showCategoryForm ? (
+          <div style={formStyle}>
+            <input 
+              placeholder="Nombre de categoría"
+              value={categoryForm.name}
+              onChange={(e) => onCategoryFormChange({...categoryForm, name: e.target.value})}
+              style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
+            />
+            <input 
+              placeholder="Descripción"
+              value={categoryForm.description}
+              onChange={(e) => onCategoryFormChange({...categoryForm, description: e.target.value})}
+              style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
+            />
+            <input 
+              type="color"
+              value={categoryForm.color}
+              onChange={(e) => onCategoryFormChange({...categoryForm, color: e.target.value})}
+              style={{ width: '100%', marginBottom: '0.5rem' }}
+            />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={onSaveCategory} style={saveButtonStyle}>💾 Guardar</button>
+              <button onClick={onCancelCategory} style={cancelButtonStyle}>❌ Cancelar</button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            {categories.map(cat => (
+              <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: '#f9fafb', marginBottom: '0.5rem', borderRadius: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <div style={{ width: '20px', height: '20px', background: cat.color, borderRadius: '50%' }}></div>
+                  <span>{cat.name}</span>
+                  <small style={{ color: '#6b7280' }}>({questions.filter(q => q.category_id === cat.id).length} preguntas)</small>
+                </div>
+                <div>
+                  <button onClick={() => onEditCategory(cat)} style={actionButtonStyle('#3B82F6')}>✏️</button>
+                  <button onClick={() => onDeleteCategory(cat.id)} style={actionButtonStyle('#EF4444')}>🗑️</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Departamentos */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h3>🏢 Departamentos</h3>
+          {!showDeptoForm && <button onClick={onNewDepto} style={newButtonStyle}>+ Nuevo</button>}
+        </div>
+        
+        {showDeptoForm ? (
+          <div style={formStyle}>
+            {!editingDepto && (
+              <input 
+                placeholder="ID (ej: ventas)"
+                value={deptoForm.id}
+                onChange={(e) => onDeptoFormChange({...deptoForm, id: e.target.value})}
+                style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
+              />
+            )}
+            <input 
+              placeholder="Nombre del departamento"
+              value={deptoForm.name}
+              onChange={(e) => onDeptoFormChange({...deptoForm, name: e.target.value})}
+              style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
+            />
+            <input 
+              type="color"
+              value={deptoForm.color}
+              onChange={(e) => onDeptoFormChange({...deptoForm, color: e.target.value})}
+              style={{ width: '100%', marginBottom: '0.5rem' }}
+            />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={onSaveDepto} style={saveButtonStyle}>💾 Guardar</button>
+              <button onClick={onCancelDepto} style={cancelButtonStyle}>❌ Cancelar</button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            {departamentos.map(depto => (
+              <div key={depto.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: '#f9fafb', marginBottom: '0.5rem', borderRadius: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <div style={{ width: '20px', height: '20px', background: depto.color, borderRadius: '50%' }}></div>
+                  <span>{depto.name}</span>
+                  <small style={{ color: '#6b7280' }}>({questions.filter(q => q.departamento === depto.id).length} preguntas)</small>
+                </div>
+                <div>
+                  <button onClick={() => onEditDepto(depto)} style={actionButtonStyle('#3B82F6')}>✏️</button>
+                  <button onClick={() => onDeleteDepto(depto.id)} style={actionButtonStyle('#EF4444')}>🗑️</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   </div>
 );
 
@@ -399,14 +589,7 @@ const cancelButtonStyle = { padding: '0.75rem 1.5rem', background: '#6b7280', co
 const thStyle = { padding: '1rem', textAlign: 'left', fontWeight: '600', background: '#f3f4f6' };
 const tdStyle = { padding: '1rem' };
 const actionButtonStyle = (color) => ({ padding: '0.5rem', marginRight: '0.5rem', background: color, color: 'white', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' });
-const deptoBadgeStyle = (depto) => ({ 
-  background: {ventas: '#3B82F6', garantia: '#F59E0B', atencion: '#10B981', seguridad: '#EF4444'}[depto] || '#6b7280', 
-  color: 'white', 
-  padding: '0.25rem 0.5rem', 
-  borderRadius: '0.25rem', 
-  fontSize: '0.75rem',
-  textTransform: 'capitalize'
-});
+const deptoBadgeStyle = (depto) => ({ background: {ventas: '#3B82F6', garantia: '#F59E0B', atencion: '#10B981', seguridad: '#EF4444'}[depto] || '#6b7280', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.75rem', textTransform: 'capitalize' });
 const analysisCardStyle = (score) => ({ background: '#f9fafb', padding: '1.5rem', borderRadius: '0.75rem', marginBottom: '1rem', borderLeft: '4px solid ' + (score >= 80 ? '#10B981' : score >= 60 ? '#F59E0B' : '#EF4444') });
 
 export default AdminModal;
