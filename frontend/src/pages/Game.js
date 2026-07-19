@@ -24,7 +24,7 @@ const Game = () => {
       .select('*, categories(name, color)')
       .eq('is_active', true)
       .order('id', { ascending: false })
-      .limit(10);
+      .limit(50);
     
     if (error) {
       console.error('Error:', error);
