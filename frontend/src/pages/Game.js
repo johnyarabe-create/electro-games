@@ -32,7 +32,7 @@ const Game = () => {
     }
     
     // Mezclar preguntas aleatoriamente
-    const shuffled = data.sort(() => 0.5 - Math.random()).slice(0, 10);
+    const shuffled = data.sort(() => 0.5 - Math.random()).slice(0, 50);
     setQuestions(shuffled);
     setLoading(false);
   };
