@@ -13,27 +13,63 @@ const Game = () => {
   const [loading, setLoading] = useState(true);
   const [finished, setFinished] = useState(false);
   const [results, setResults] = useState(null);
+  const [config, setConfig] = useState(null);
 
   useEffect(() => {
-    fetchQuestions();
+    // Cargar configuración
+    const savedConfig = localStorage.getItem('gameConfig');
+    if (savedConfig) {
+      setConfig(JSON.parse(savedConfig));
+    } else {
+      // Configuración por defecto
+      setConfig({
+        category: 'todas',
+        departamento: 'todos',
+        difficulty: 'todas',
+        questionCount: 10
+      });
+    }
   }, []);
 
+  useEffect(() => {
+    if (config) {
+      fetchQuestions();
+    }
+  }, [config]);
+
   const fetchQuestions = async () => {
-    const { data, error } = await supabase
+    setLoading(true);
+    
+    let query = supabase
       .from('questions')
       .select('*, categories(name, color)')
-      .eq('is_active', true)
-      .order('id', { ascending: false })
-      .limit(50);
+      .eq('is_active', true);
+
+    // Aplicar filtros
+    if (config.category !== 'todas') {
+      query = query.eq('category_id', config.category);
+    }
     
+    if (config.departamento !== 'todos') {
+      query = query.eq('departamento', config.departamento);
+    }
+    
+    if (config.difficulty !== 'todas') {
+      query = query.eq('difficulty', parseInt(config.difficulty));
+    }
+
+    const { data, error } = await query;
+
     if (error) {
       console.error('Error:', error);
       return;
     }
+
+    // Mezclar y limitar cantidad
+    const shuffled = data.sort(() => 0.5 - Math.random());
+    const limited = shuffled.slice(0, config.questionCount || 10);
     
-    // Mezclar preguntas aleatoriamente
-    const shuffled = data.sort(() => 0.5 - Math.random()).slice(0, 50);
-    setQuestions(shuffled);
+    setQuestions(limited);
     setLoading(false);
   };
 
@@ -67,7 +103,7 @@ const Game = () => {
     const correctCount = finalAnswers.filter(a => a.is_correct).length;
     const totalXP = finalAnswers.reduce((sum, a) => sum + a.xp_earned, 0);
     
-    // Guardar sesión de juego
+    // Guardar sesión
     await supabase.from('game_sessions').insert([{
       user_id: profile.id,
       score: correctCount * 100,
@@ -77,7 +113,7 @@ const Game = () => {
       completed: true
     }]);
     
-    // Actualizar XP y nivel del usuario
+    // Actualizar XP
     const newTotalXP = (profile.total_xp || 0) + totalXP;
     const newCurrentXP = (profile.current_xp || 0) + totalXP;
     const xpForNextLevel = Math.round(100 * Math.pow((profile.level || 1) + 1, 1.5));
@@ -87,8 +123,7 @@ const Game = () => {
     await updateProfile({
       total_xp: newTotalXP,
       current_xp: remainingXP,
-      level: newLevel,
-      streak_days: (profile.streak_days || 0) + 1
+      level: newLevel
     });
     
     setResults({
@@ -107,27 +142,11 @@ const Game = () => {
       <div style={{ textAlign: 'center', padding: '3rem' }}>
         <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎉</div>
         <h2 style={{ marginBottom: '1rem' }}>¡Juego Completado!</h2>
-        <div style={{ background: 'white', padding: '2rem', borderRadius: '1rem', maxWidth: '400px', margin: '0 auto', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-          <p style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>
-            Correctas: <strong>{results.correct_answers}/{results.total_questions}</strong>
-          </p>
-          <p style={{ fontSize: '1.25rem', color: '#10B981', fontWeight: 'bold' }}>
-            +{results.xp_earned} XP
-          </p>
+        <div style={{ background: 'white', padding: '2rem', borderRadius: '1rem', maxWidth: '400px', margin: '0 auto' }}>
+          <p style={{ fontSize: '1.25rem' }}>Correctas: <strong>{results.correct_answers}/{results.total_questions}</strong></p>
+          <p style={{ fontSize: '1.25rem', color: '#10B981', fontWeight: 'bold' }}>+{results.xp_earned} XP</p>
         </div>
-        <button 
-          onClick={() => navigate('/')} 
-          style={{ 
-            marginTop: '2rem', 
-            padding: '1rem 2rem', 
-            background: '#3B82F6', 
-            color: 'white', 
-            border: 'none', 
-            borderRadius: '0.5rem', 
-            cursor: 'pointer',
-            fontSize: '1rem'
-          }}
-        >
+        <button onClick={() => navigate('/')} style={{ marginTop: '2rem', padding: '1rem 2rem', background: '#3B82F6', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' }}>
           Volver al Inicio
         </button>
       </div>
@@ -138,35 +157,29 @@ const Game = () => {
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-        <span style={{ fontSize: '1.125rem', color: '#6b7280' }}>
+      {/* Mostrar filtros aplicados */}
+      <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f3f4f6', borderRadius: '0.5rem' }}>
+        <small>
+          🎮 Modo: {config?.departamento === 'todos' ? 'Todos los departamentos' : config?.departamento} | 
+          📁 {config?.category === 'todas' ? 'Todas las categorías' : q?.categories?.name} | 
           Pregunta {current + 1} de {questions.length}
-        </span>
-        <span style={{ 
-          background: q.categories?.color || '#3B82F6', 
-          color: 'white', 
-          padding: '0.5rem 1rem', 
-          borderRadius: '9999px',
-          fontSize: '0.875rem',
-          fontWeight: '600'
-        }}>
-          {q.categories?.name}
-        </span>
+        </small>
       </div>
       
-      <div style={{ 
-        background: 'white', 
-        padding: '2rem', 
-        borderRadius: '1rem', 
-        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
-        marginBottom: '2rem'
-      }}>
-        <h2 style={{ marginBottom: '2rem', fontSize: '1.5rem', lineHeight: '1.5' }}>
-          {q.question_text}
-        </h2>
+      <div style={{ background: 'white', padding: '2rem', borderRadius: '1rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <span style={{ fontSize: '1.125rem', color: '#6b7280' }}>
+            Pregunta {current + 1} de {questions.length}
+          </span>
+          <span style={{ background: q?.categories?.color || '#3B82F6', color: 'white', padding: '0.5rem 1rem', borderRadius: '9999px', fontSize: '0.875rem' }}>
+            {q?.categories?.name}
+          </span>
+        </div>
+        
+        <h2 style={{ marginBottom: '2rem', fontSize: '1.5rem' }}>{q?.question_text}</h2>
         
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {q.options.map((opt, idx) => (
+          {q?.options?.map((opt, idx) => (
             <button
               key={idx}
               onClick={() => handleAnswer(idx)}
@@ -176,22 +189,13 @@ const Game = () => {
                 textAlign: 'left',
                 borderRadius: '0.75rem',
                 border: '2px solid',
-                borderColor: selected === null ? '#e5e7eb' : 
-                  selected === idx ? 
-                    (idx === q.correct_answer ? '#10B981' : '#EF4444') : 
-                    (idx === q.correct_answer ? '#10B981' : '#e5e7eb'),
-                background: selected === null ? 'white' : 
-                  selected === idx ? 
-                    (idx === q.correct_answer ? '#D1FAE5' : '#FEE2E2') : 
-                    (idx === q.correct_answer ? '#D1FAE5' : '#F9FAFB'),
+                borderColor: selected === null ? '#e5e7eb' : selected === idx ? (idx === q.correct_answer ? '#10B981' : '#EF4444') : (idx === q.correct_answer ? '#10B981' : '#e5e7eb'),
+                background: selected === null ? 'white' : selected === idx ? (idx === q.correct_answer ? '#D1FAE5' : '#FEE2E2') : (idx === q.correct_answer ? '#D1FAE5' : '#F9FAFB'),
                 cursor: selected === null ? 'pointer' : 'default',
-                fontSize: '1.125rem',
-                transition: 'all 0.2s'
+                fontSize: '1.125rem'
               }}
             >
-              <strong style={{ marginRight: '1rem', color: '#3B82F6' }}>
-                {String.fromCharCode(65 + idx)}.
-              </strong>
+              <strong style={{ marginRight: '1rem', color: '#3B82F6' }}>{String.fromCharCode(65 + idx)}.</strong>
               {opt}
             </button>
           ))}
