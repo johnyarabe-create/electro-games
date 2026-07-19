@@ -135,23 +135,66 @@ const AdminModal = ({ isOpen, onClose }) => {
     setShowForm(true);
   };
 
-  // CRUD Categorías
+  // CRUD Categorías - CORREGIDO CON DEBUG
   const saveCategory = async () => {
-    if (editingCategory) {
-      await supabase.from('categories').update(categoryForm).eq('id', editingCategory.id);
-    } else {
-      await supabase.from('categories').insert([categoryForm]);
+    console.log('🔵 Guardando categoría...', { editingCategory, categoryForm });
+    
+    try {
+      if (editingCategory) {
+        console.log('📝 Actualizando categoría ID:', editingCategory.id);
+        
+        const { data, error } = await supabase
+          .from('categories')
+          .update({
+            name: categoryForm.name,
+            description: categoryForm.description,
+            color: categoryForm.color
+          })
+          .eq('id', editingCategory.id)
+          .select();
+        
+        console.log('✅ Respuesta Supabase:', { data, error });
+        
+        if (error) {
+          alert('❌ Error al actualizar: ' + error.message);
+          console.error(error);
+          return;
+        }
+        
+        if (data) {
+          console.log('✅ Actualización exitosa:', data);
+        }
+      } else {
+        // Crear nueva
+        const { data, error } = await supabase
+          .from('categories')
+          .insert([categoryForm])
+          .select();
+        
+        if (error) {
+          alert('❌ Error al crear: ' + error.message);
+          console.error(error);
+          return;
+        }
+        console.log('✅ Categoría creada:', data);
+      }
+
+      setShowCategoryForm(false);
+      setEditingCategory(null);
+      setCategoryForm({ name: '', description: '', color: '#3B82F6' });
+      await fetchData();
+      alert('✅ Categoría guardada correctamente');
+      
+    } catch (err) {
+      console.error('💥 Error catch:', err);
+      alert('💥 Error inesperado: ' + err.message);
     }
-    setShowCategoryForm(false);
-    setEditingCategory(null);
-    setCategoryForm({ name: '', description: '', color: '#3B82F6' });
-    fetchData();
   };
 
   const deleteCategory = async (id) => {
     const count = questions.filter(q => q.category_id === id).length;
     if (count > 0) {
-      alert(`No puedes eliminar esta categoría. Tiene ${count} preguntas asignadas.`);
+      alert(`⚠️ No puedes eliminar esta categoría. Tiene ${count} preguntas asignadas.`);
       return;
     }
     if (!confirm('¿Eliminar esta categoría?')) return;
@@ -160,8 +203,13 @@ const AdminModal = ({ isOpen, onClose }) => {
   };
 
   const editCategory = (cat) => {
+    console.log('✏️ Editando categoría:', cat);
     setEditingCategory(cat);
-    setCategoryForm({ name: cat.name, description: cat.description || '', color: cat.color || '#3B82F6' });
+    setCategoryForm({ 
+      name: cat.name, 
+      description: cat.description || '', 
+      color: cat.color || '#3B82F6' 
+    });
     setShowCategoryForm(true);
   };
 
@@ -181,7 +229,7 @@ const AdminModal = ({ isOpen, onClose }) => {
   const deleteDepto = (id) => {
     const count = questions.filter(q => q.departamento === id).length;
     if (count > 0) {
-      alert(`No puedes eliminar este departamento. Tiene ${count} preguntas asignadas.`);
+      alert(`⚠️ No puedes eliminar este departamento. Tiene ${count} preguntas asignadas.`);
       return;
     }
     if (!confirm('¿Eliminar este departamento?')) return;
@@ -304,7 +352,7 @@ const AdminModal = ({ isOpen, onClose }) => {
   );
 };
 
-// Sub-componentes (simplificados para el ejemplo)
+// Sub-componentes
 const TabButton = ({ active, onClick, children }) => (
   <button onClick={onClick} style={tabButtonStyle(active)}>{children}</button>
 );
@@ -464,12 +512,15 @@ const EstructuraTab = ({
               onChange={(e) => onCategoryFormChange({...categoryForm, description: e.target.value})}
               style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
             />
-            <input 
-              type="color"
-              value={categoryForm.color}
-              onChange={(e) => onCategoryFormChange({...categoryForm, color: e.target.value})}
-              style={{ width: '100%', marginBottom: '0.5rem' }}
-            />
+            <div style={{ marginBottom: '0.5rem' }}>
+              <label>Color:</label>
+              <input 
+                type="color"
+                value={categoryForm.color}
+                onChange={(e) => onCategoryFormChange({...categoryForm, color: e.target.value})}
+                style={{ width: '100%', height: '40px' }}
+              />
+            </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button onClick={onSaveCategory} style={saveButtonStyle}>💾 Guardar</button>
               <button onClick={onCancelCategory} style={cancelButtonStyle}>❌ Cancelar</button>
@@ -517,12 +568,15 @@ const EstructuraTab = ({
               onChange={(e) => onDeptoFormChange({...deptoForm, name: e.target.value})}
               style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
             />
-            <input 
-              type="color"
-              value={deptoForm.color}
-              onChange={(e) => onDeptoFormChange({...deptoForm, color: e.target.value})}
-              style={{ width: '100%', marginBottom: '0.5rem' }}
-            />
+            <div style={{ marginBottom: '0.5rem' }}>
+              <label>Color:</label>
+              <input 
+                type="color"
+                value={deptoForm.color}
+                onChange={(e) => onDeptoFormChange({...deptoForm, color: e.target.value})}
+                style={{ width: '100%', height: '40px' }}
+              />
+            </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button onClick={onSaveDepto} style={saveButtonStyle}>💾 Guardar</button>
               <button onClick={onCancelDepto} style={cancelButtonStyle}>❌ Cancelar</button>
