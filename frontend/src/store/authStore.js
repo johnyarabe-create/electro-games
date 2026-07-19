@@ -1,93 +1,41 @@
-import { create } from 'zustand';
-import { supabase } from '../services/supabase';
+register: async (email, password, firstName, lastName) => {
+    set({ loading: true, error: null });
+    
+    // 1. Crear usuario en auth
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+            data: { first_name: firstName, last_name: lastName }
+        }
+    });
 
-export const useAuthStore = create((set, get) => ({
-  user: null,
-  profile: null,
-  loading: true,
-  
-  // Inicializar auth
-  initAuth: async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    set({ user, loading: false });
-    
-    if (user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-      set({ profile });
+    if (authError) {
+        set({ error: authError.message, loading: false });
+        return false;
     }
-  },
-  
-  // Login
-  login: async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-    
-    if (error) throw error;
-    
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', data.user.id)
-      .single();
-    
-    set({ user: data.user, profile });
-    return { user: data.user, profile };
-  },
-  
-  // Registro
-  register: async (email, password, firstName, lastName) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { first_name: firstName, last_name: lastName }
-      }
-    });
-    
-    if (error) throw error;
-    
-    // Crear perfil en la tabla profiles
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .insert([{
-        id: data.user.id,
-        email: email,
-        first_name: firstName,
-        last_name: lastName,
-        level: 1,
-        total_xp: 0,
-        current_xp: 0
-      }]);
-    
-    if (profileError) throw profileError;
-    
-    return data;
-  },
-  
-  // Logout
-  logout: async () => {
-    await supabase.auth.signOut();
-    set({ user: null, profile: null });
-  },
-  
-  // Actualizar perfil
-  updateProfile: async (updates) => {
-    const { user } = get();
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', user.id)
-      .select()
-      .single();
-    
-    if (error) throw error;
-    set({ profile: data });
-    return data;
-  }
-}));
+
+    // 2. Crear perfil manualmente
+    if (authData.user) {
+        const { error: profileError } = await supabase
+            .from('profiles')
+            .insert({
+                id: authData.user.id,
+                first_name: firstName,
+                last_name: lastName,
+                email: email,
+                level: 1,
+                total_xp: 0,
+                current_xp: 0,
+                streak_days: 0
+            });
+
+        if (profileError) {
+            console.error('Error creando perfil:', profileError);
+            // No retornamos false aquí para no bloquear el registro
+        }
+    }
+
+    set({ user: authData.user?.user_metadata, loading: false });
+    return true;
+},
