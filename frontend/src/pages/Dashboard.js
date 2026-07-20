@@ -66,27 +66,22 @@ const Dashboard = () => {
           {profile?.current_xp || 0} / {xpForNextLevel} XP
         </p>
       </div>
+<Link 
+  to="/game-config"  // ← Cambiado de /game a /game-config
+  style={{ 
+    display: 'inline-flex', 
+    alignItems: 'center', 
+    gap: '0.5rem',
+    background: 'linear-gradient(135deg, #3B82F6 0%, #1E40AF 100%)', 
+    color: 'white', 
+    padding: '1rem 2rem', 
+    borderRadius: '0.75rem', 
+    textDecoration: 'none', 
+    fontSize: '1.125rem',
+    fontWeight: '600',
+    boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.3)'
+  }}
+>
+  ▶️ Jugar Ahora
+</Link>
 
-      <Link 
-        to="/game" 
-        style={{ 
-          display: 'inline-flex', 
-          alignItems: 'center', 
-          gap: '0.5rem',
-          background: 'linear-gradient(135deg, #3B82F6 0%, #1E40AF 100%)', 
-          color: 'white', 
-          padding: '1rem 2rem', 
-          borderRadius: '0.75rem', 
-          textDecoration: 'none', 
-          fontSize: '1.125rem',
-          fontWeight: '600',
-          boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.3)'
-        }}
-      >
-        ▶️ Jugar Ahora
-      </Link>
-    </div>
-  );
-};
-
-export default Dashboard;
