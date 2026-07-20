@@ -37,41 +37,51 @@ const Game = () => {
     }
   }, [config]);
 
-  const fetchQuestions = async () => {
-    setLoading(true);
-    
-    let query = supabase
+const fetchQuestions = async () => {
+  // Leer configuración de localStorage
+  const savedConfig = localStorage.getItem('gameConfig');
+  const config = savedConfig ? JSON.parse(savedConfig) : { category: 'all', department: 'all' };
+  
+  // Construir query base
+  let query = supabase
+    .from('questions')
+    .select('*, categories(name, color)')
+    .eq('is_active', true);
+  
+  // Aplicar filtro de categoría si no es 'all'
+  if (config.category && config.category !== 'all') {
+    query = query.eq('category_id', config.category);
+  }
+  
+  // Aplicar filtro de departamento si no es 'all'
+  if (config.department && config.department !== 'all') {
+    query = query.eq('department_id', config.department);
+  }
+  
+  const { data, error } = await query.order('id', { ascending: false }).limit(10);
+  
+  if (error) {
+    console.error('Error:', error);
+    return;
+  }
+  
+  // Si no hay preguntas con los filtros, mostrar mensaje o usar todas
+  let questionsToUse = data;
+  if (questionsToUse.length === 0) {
+    // Opcional: cargar todas las preguntas si no hay resultados
+    const { data: allData } = await supabase
       .from('questions')
       .select('*, categories(name, color)')
-      .eq('is_active', true);
-
-    // Aplicar filtros
-    if (config.category !== 'todas') {
-      query = query.eq('category_id', config.category);
-    }
-    
-    if (config.departamento !== 'todos') {
-      query = query.eq('departamento', config.departamento);
-    }
-    
-    if (config.difficulty !== 'todas') {
-      query = query.eq('difficulty', parseInt(config.difficulty));
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('Error:', error);
-      return;
-    }
-
-    // Mezclar y limitar cantidad
-    const shuffled = data.sort(() => 0.5 - Math.random());
-    const limited = shuffled.slice(0, config.questionCount || 10);
-    
-    setQuestions(limited);
-    setLoading(false);
-  };
+      .eq('is_active', true)
+      .limit(10);
+    questionsToUse = allData || [];
+  }
+  
+  // Mezclar preguntas aleatoriamente
+  const shuffled = questionsToUse.sort(() => 0.5 - Math.random()).slice(0, 10);
+  setQuestions(shuffled);
+  setLoading(false);
+};
 
   const handleAnswer = async (index) => {
     if (selected !== null) return;
