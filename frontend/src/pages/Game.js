@@ -13,75 +13,57 @@ const Game = () => {
   const [loading, setLoading] = useState(true);
   const [finished, setFinished] = useState(false);
   const [results, setResults] = useState(null);
-  const [config, setConfig] = useState(null);
+  const [config, setConfig] = useState({ category: 'all', department: 'all' });
 
   useEffect(() => {
-    // Cargar configuración
+    // Cargar configuración de localStorage
     const savedConfig = localStorage.getItem('gameConfig');
     if (savedConfig) {
       setConfig(JSON.parse(savedConfig));
-    } else {
-      // Configuración por defecto
-      setConfig({
-        category: 'todas',
-        departamento: 'todos',
-        difficulty: 'todas',
-        questionCount: 10
-      });
     }
+    fetchQuestions(savedConfig ? JSON.parse(savedConfig) : { category: 'all', department: 'all' });
   }, []);
 
-  useEffect(() => {
-    if (config) {
-      fetchQuestions();
-    }
-  }, [config]);
-
-const fetchQuestions = async () => {
-  // Leer configuración de localStorage
-  const savedConfig = localStorage.getItem('gameConfig');
-  const config = savedConfig ? JSON.parse(savedConfig) : { category: 'all', department: 'all' };
-  
-  // Construir query base
-  let query = supabase
-    .from('questions')
-    .select('*, categories(name, color)')
-    .eq('is_active', true);
-  
-  // Aplicar filtro de categoría si no es 'all'
-  if (config.category && config.category !== 'all') {
-    query = query.eq('category_id', config.category);
-  }
-  
-  // Aplicar filtro de departamento si no es 'all'
-  if (config.department && config.department !== 'all') {
-    query = query.eq('department_id', config.department);
-  }
-  
-  const { data, error } = await query.order('id', { ascending: false }).limit(10);
-  
-  if (error) {
-    console.error('Error:', error);
-    return;
-  }
-  
-  // Si no hay preguntas con los filtros, mostrar mensaje o usar todas
-  let questionsToUse = data;
-  if (questionsToUse.length === 0) {
-    // Opcional: cargar todas las preguntas si no hay resultados
-    const { data: allData } = await supabase
+  const fetchQuestions = async (gameConfig) => {
+    // Construir query base
+    let query = supabase
       .from('questions')
       .select('*, categories(name, color)')
-      .eq('is_active', true)
-      .limit(10);
-    questionsToUse = allData || [];
-  }
-  
-  // Mezclar preguntas aleatoriamente
-  const shuffled = questionsToUse.sort(() => 0.5 - Math.random()).slice(0, 10);
-  setQuestions(shuffled);
-  setLoading(false);
-};
+      .eq('is_active', true);
+    
+    // Aplicar filtro de categoría si no es 'all'
+    if (gameConfig?.category && gameConfig.category !== 'all') {
+      query = query.eq('category_id', gameConfig.category);
+    }
+    
+    // Aplicar filtro de departamento si no es 'all'
+    if (gameConfig?.department && gameConfig.department !== 'all') {
+      query = query.eq('department_id', gameConfig.department);
+    }
+    
+    const { data, error } = await query.order('id', { ascending: false }).limit(10);
+    
+    if (error) {
+      console.error('Error:', error);
+      return;
+    }
+    
+    // Si no hay preguntas con los filtros, cargar todas
+    let questionsToUse = data || [];
+    if (questionsToUse.length === 0) {
+      const { data: allData } = await supabase
+        .from('questions')
+        .select('*, categories(name, color)')
+        .eq('is_active', true)
+        .limit(10);
+      questionsToUse = allData || [];
+    }
+    
+    // Mezclar preguntas aleatoriamente
+    const shuffled = questionsToUse.sort(() => 0.5 - Math.random()).slice(0, 10);
+    setQuestions(shuffled);
+    setLoading(false);
+  };
 
   const handleAnswer = async (index) => {
     if (selected !== null) return;
@@ -113,7 +95,7 @@ const fetchQuestions = async () => {
     const correctCount = finalAnswers.filter(a => a.is_correct).length;
     const totalXP = finalAnswers.reduce((sum, a) => sum + a.xp_earned, 0);
     
-    // Guardar sesión
+    // Guardar sesión de juego
     await supabase.from('game_sessions').insert([{
       user_id: profile.id,
       score: correctCount * 100,
@@ -123,7 +105,7 @@ const fetchQuestions = async () => {
       completed: true
     }]);
     
-    // Actualizar XP
+    // Actualizar XP y nivel del usuario
     const newTotalXP = (profile.total_xp || 0) + totalXP;
     const newCurrentXP = (profile.current_xp || 0) + totalXP;
     const xpForNextLevel = Math.round(100 * Math.pow((profile.level || 1) + 1, 1.5));
@@ -133,7 +115,8 @@ const fetchQuestions = async () => {
     await updateProfile({
       total_xp: newTotalXP,
       current_xp: remainingXP,
-      level: newLevel
+      level: newLevel,
+      streak_days: (profile.streak_days || 0) + 1
     });
     
     setResults({
@@ -152,11 +135,27 @@ const fetchQuestions = async () => {
       <div style={{ textAlign: 'center', padding: '3rem' }}>
         <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎉</div>
         <h2 style={{ marginBottom: '1rem' }}>¡Juego Completado!</h2>
-        <div style={{ background: 'white', padding: '2rem', borderRadius: '1rem', maxWidth: '400px', margin: '0 auto' }}>
-          <p style={{ fontSize: '1.25rem' }}>Correctas: <strong>{results.correct_answers}/{results.total_questions}</strong></p>
-          <p style={{ fontSize: '1.25rem', color: '#10B981', fontWeight: 'bold' }}>+{results.xp_earned} XP</p>
+        <div style={{ background: 'white', padding: '2rem', borderRadius: '1rem', maxWidth: '400px', margin: '0 auto', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+          <p style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>
+            Correctas: <strong>{results.correct_answers}/{results.total_questions}</strong>
+          </p>
+          <p style={{ fontSize: '1.25rem', color: '#10B981', fontWeight: 'bold' }}>
+            +{results.xp_earned} XP
+          </p>
         </div>
-        <button onClick={() => navigate('/')} style={{ marginTop: '2rem', padding: '1rem 2rem', background: '#3B82F6', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' }}>
+        <button 
+          onClick={() => navigate('/')} 
+          style={{ 
+            marginTop: '2rem', 
+            padding: '1rem 2rem', 
+            background: '#3B82F6', 
+            color: 'white', 
+            border: 'none', 
+            borderRadius: '0.5rem', 
+            cursor: 'pointer',
+            fontSize: '1rem'
+          }}
+        >
           Volver al Inicio
         </button>
       </div>
@@ -167,26 +166,32 @@ const fetchQuestions = async () => {
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-      {/* Mostrar filtros aplicados */}
-      <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f3f4f6', borderRadius: '0.5rem' }}>
-        <small>
-          🎮 Modo: {config?.departamento === 'todos' ? 'Todos los departamentos' : config?.departamento} | 
-          📁 {config?.category === 'todas' ? 'Todas las categorías' : q?.categories?.name} | 
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <span style={{ fontSize: '1.125rem', color: '#6b7280' }}>
           Pregunta {current + 1} de {questions.length}
-        </small>
+        </span>
+        <span style={{ 
+          background: q?.categories?.color || '#3B82F6', 
+          color: 'white', 
+          padding: '0.5rem 1rem', 
+          borderRadius: '9999px',
+          fontSize: '0.875rem',
+          fontWeight: '600'
+        }}>
+          {q?.categories?.name || 'General'}
+        </span>
       </div>
       
-      <div style={{ background: 'white', padding: '2rem', borderRadius: '1rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <span style={{ fontSize: '1.125rem', color: '#6b7280' }}>
-            Pregunta {current + 1} de {questions.length}
-          </span>
-          <span style={{ background: q?.categories?.color || '#3B82F6', color: 'white', padding: '0.5rem 1rem', borderRadius: '9999px', fontSize: '0.875rem' }}>
-            {q?.categories?.name}
-          </span>
-        </div>
-        
-        <h2 style={{ marginBottom: '2rem', fontSize: '1.5rem' }}>{q?.question_text}</h2>
+      <div style={{ 
+        background: 'white', 
+        padding: '2rem', 
+        borderRadius: '1rem', 
+        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+        marginBottom: '2rem'
+      }}>
+        <h2 style={{ marginBottom: '2rem', fontSize: '1.5rem', lineHeight: '1.5' }}>
+          {q?.question_text}
+        </h2>
         
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           {q?.options?.map((opt, idx) => (
@@ -199,13 +204,22 @@ const fetchQuestions = async () => {
                 textAlign: 'left',
                 borderRadius: '0.75rem',
                 border: '2px solid',
-                borderColor: selected === null ? '#e5e7eb' : selected === idx ? (idx === q.correct_answer ? '#10B981' : '#EF4444') : (idx === q.correct_answer ? '#10B981' : '#e5e7eb'),
-                background: selected === null ? 'white' : selected === idx ? (idx === q.correct_answer ? '#D1FAE5' : '#FEE2E2') : (idx === q.correct_answer ? '#D1FAE5' : '#F9FAFB'),
+                borderColor: selected === null ? '#e5e7eb' : 
+                  selected === idx ? 
+                    (idx === q.correct_answer ? '#10B981' : '#EF4444') : 
+                    (idx === q.correct_answer ? '#10B981' : '#e5e7eb'),
+                background: selected === null ? 'white' : 
+                  selected === idx ? 
+                    (idx === q.correct_answer ? '#D1FAE5' : '#FEE2E2') : 
+                    (idx === q.correct_answer ? '#D1FAE5' : '#F9FAFB'),
                 cursor: selected === null ? 'pointer' : 'default',
-                fontSize: '1.125rem'
+                fontSize: '1.125rem',
+                transition: 'all 0.2s'
               }}
             >
-              <strong style={{ marginRight: '1rem', color: '#3B82F6' }}>{String.fromCharCode(65 + idx)}.</strong>
+              <strong style={{ marginRight: '1rem', color: '#3B82F6' }}>
+                {String.fromCharCode(65 + idx)}.
+              </strong>
               {opt}
             </button>
           ))}
