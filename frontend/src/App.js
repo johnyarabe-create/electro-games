@@ -4,6 +4,7 @@ import { useAuthStore } from './store/authStore';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Game from './pages/Game';
+import GameConfig from './components/GameConfig';
 import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
 import Layout from './components/Layout';
@@ -27,6 +28,7 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/game-config" element={<GameConfig />} />
             <Route path="/game" element={<Game />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/profile" element={<Profile />} />
