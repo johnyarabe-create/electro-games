@@ -1,208 +1,183 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
-import { useAuthStore } from '../store/authStore';
 
-const Game = () => {
+const GameConfig = () => {
   const navigate = useNavigate();
-  const { profile, updateProfile } = useAuthStore();
-  const [questions, setQuestions] = useState([]);
-  const [current, setCurrent] = useState(0);
-  const [selected, setSelected] = useState(null);
-  const [answers, setAnswers] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedDepartment, setSelectedDepartment] = useState('all');
   const [loading, setLoading] = useState(true);
-  const [finished, setFinished] = useState(false);
-  const [results, setResults] = useState(null);
-  const [config, setConfig] = useState(null);
 
   useEffect(() => {
-    // Cargar configuración
+    fetchFilters();
+    // Cargar configuración guardada si existe
     const savedConfig = localStorage.getItem('gameConfig');
     if (savedConfig) {
-      setConfig(JSON.parse(savedConfig));
-    } else {
-      // Configuración por defecto
-      setConfig({
-        category: 'todas',
-        departamento: 'todos',
-        difficulty: 'todas',
-        questionCount: 10
-      });
+      const config = JSON.parse(savedConfig);
+      setSelectedCategory(config.category || 'all');
+      setSelectedDepartment(config.department || 'all');
     }
   }, []);
 
-  useEffect(() => {
-    if (config) {
-      fetchQuestions();
+  const fetchFilters = async () => {
+    try {
+      const [{ data: cats }, { data: depts }] = await Promise.all([
+        supabase.from('categories').select('id, name').eq('is_active', true),
+        supabase.from('departments').select('id, name').eq('is_active', true)
+      ]);
+      setCategories(cats || []);
+      setDepartments(depts || []);
+    } catch (error) {
+      console.error('Error cargando filtros:', error);
+    } finally {
+      setLoading(false);
     }
-  }, [config]);
-
-  const fetchQuestions = async () => {
-    setLoading(true);
-    
-    let query = supabase
-      .from('questions')
-      .select('*, categories(name, color)')
-      .eq('is_active', true);
-
-    // Aplicar filtros
-    if (config.category !== 'todas') {
-      query = query.eq('category_id', config.category);
-    }
-    
-    if (config.departamento !== 'todos') {
-      query = query.eq('departamento', config.departamento);
-    }
-    
-    if (config.difficulty !== 'todas') {
-      query = query.eq('difficulty', parseInt(config.difficulty));
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('Error:', error);
-      return;
-    }
-
-    // Mezclar y limitar cantidad
-    const shuffled = data.sort(() => 0.5 - Math.random());
-    const limited = shuffled.slice(0, config.questionCount || 10);
-    
-    setQuestions(limited);
-    setLoading(false);
   };
 
-  const handleAnswer = async (index) => {
-    if (selected !== null) return;
-    setSelected(index);
-    
-    const currentQ = questions[current];
-    const isCorrect = index === currentQ.correct_answer;
-    
-    setTimeout(async () => {
-      const newAnswers = [...answers, {
-        question_id: currentQ.id,
-        selected_answer: index,
-        is_correct: isCorrect,
-        xp_earned: isCorrect ? currentQ.xp_reward : 0
-      }];
-      
-      setAnswers(newAnswers);
-      
-      if (current < questions.length - 1) {
-        setCurrent(current + 1);
-        setSelected(null);
-      } else {
-        await finishGame(newAnswers);
-      }
-    }, 1000);
+  const handleStartGame = () => {
+    const config = {
+      category: selectedCategory,
+      department: selectedDepartment,
+      timestamp: new Date().toISOString()
+    };
+    localStorage.setItem('gameConfig', JSON.stringify(config));
+    navigate('/game');
   };
 
-  const finishGame = async (finalAnswers) => {
-    const correctCount = finalAnswers.filter(a => a.is_correct).length;
-    const totalXP = finalAnswers.reduce((sum, a) => sum + a.xp_earned, 0);
-    
-    // Guardar sesión
-    await supabase.from('game_sessions').insert([{
-      user_id: profile.id,
-      score: correctCount * 100,
-      correct_answers: correctCount,
-      total_questions: finalAnswers.length,
-      xp_earned: totalXP,
-      completed: true
-    }]);
-    
-    // Actualizar XP
-    const newTotalXP = (profile.total_xp || 0) + totalXP;
-    const newCurrentXP = (profile.current_xp || 0) + totalXP;
-    const xpForNextLevel = Math.round(100 * Math.pow((profile.level || 1) + 1, 1.5));
-    const newLevel = newCurrentXP >= xpForNextLevel ? (profile.level || 1) + 1 : (profile.level || 1);
-    const remainingXP = newCurrentXP >= xpForNextLevel ? newCurrentXP - xpForNextLevel : newCurrentXP;
-    
-    await updateProfile({
-      total_xp: newTotalXP,
-      current_xp: remainingXP,
-      level: newLevel
-    });
-    
-    setResults({
-      correct_answers: correctCount,
-      total_questions: finalAnswers.length,
-      xp_earned: totalXP
-    });
-    
-    setFinished(true);
-  };
-
-  if (loading) return <div style={{ textAlign: 'center', padding: '3rem' }}>Cargando preguntas...</div>;
-
-  if (finished) {
+  if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '3rem' }}>
-        <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎉</div>
-        <h2 style={{ marginBottom: '1rem' }}>¡Juego Completado!</h2>
-        <div style={{ background: 'white', padding: '2rem', borderRadius: '1rem', maxWidth: '400px', margin: '0 auto' }}>
-          <p style={{ fontSize: '1.25rem' }}>Correctas: <strong>{results.correct_answers}/{results.total_questions}</strong></p>
-          <p style={{ fontSize: '1.25rem', color: '#10B981', fontWeight: 'bold' }}>+{results.xp_earned} XP</p>
-        </div>
-        <button onClick={() => navigate('/')} style={{ marginTop: '2rem', padding: '1rem 2rem', background: '#3B82F6', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' }}>
-          Volver al Inicio
-        </button>
+        Cargando opciones...
       </div>
     );
   }
 
-  const q = questions[current];
-
   return (
-    <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-      {/* Mostrar filtros aplicados */}
-      <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f3f4f6', borderRadius: '0.5rem' }}>
-        <small>
-          🎮 Modo: {config?.departamento === 'todos' ? 'Todos los departamentos' : config?.departamento} | 
-          📁 {config?.category === 'todas' ? 'Todas las categorías' : q?.categories?.name} | 
-          Pregunta {current + 1} de {questions.length}
-        </small>
-      </div>
-      
-      <div style={{ background: 'white', padding: '2rem', borderRadius: '1rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <span style={{ fontSize: '1.125rem', color: '#6b7280' }}>
-            Pregunta {current + 1} de {questions.length}
-          </span>
-          <span style={{ background: q?.categories?.color || '#3B82F6', color: 'white', padding: '0.5rem 1rem', borderRadius: '9999px', fontSize: '0.875rem' }}>
-            {q?.categories?.name}
-          </span>
+    <div style={{ maxWidth: '600px', margin: '0 auto', padding: '2rem' }}>
+      <h1 style={{ marginBottom: '0.5rem' }}>Configurar Juego</h1>
+      <p style={{ color: '#6b7280', marginBottom: '2rem' }}>
+        Selecciona las preguntas que quieres practicar
+      </p>
+
+      <div style={{ 
+        background: 'white', 
+        padding: '2rem', 
+        borderRadius: '1rem',
+        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+        marginBottom: '2rem'
+      }}>
+        {/* Selector de Categoría */}
+        <div style={{ marginBottom: '1.5rem' }}>
+          <label style={{ 
+            display: 'block', 
+            marginBottom: '0.5rem', 
+            fontWeight: '600',
+            color: '#374151'
+          }}>
+            📦 Categoría de Producto
+          </label>
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              borderRadius: '0.5rem',
+              border: '2px solid #e5e7eb',
+              fontSize: '1rem',
+              background: 'white',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="all">Todas las categorías</option>
+            {categories.map(cat => (
+              <option key={cat.id} value={cat.id}>{cat.name}</option>
+            ))}
+          </select>
         </div>
-        
-        <h2 style={{ marginBottom: '2rem', fontSize: '1.5rem' }}>{q?.question_text}</h2>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {q?.options?.map((opt, idx) => (
-            <button
-              key={idx}
-              onClick={() => handleAnswer(idx)}
-              disabled={selected !== null}
-              style={{
-                padding: '1.25rem',
-                textAlign: 'left',
-                borderRadius: '0.75rem',
-                border: '2px solid',
-                borderColor: selected === null ? '#e5e7eb' : selected === idx ? (idx === q.correct_answer ? '#10B981' : '#EF4444') : (idx === q.correct_answer ? '#10B981' : '#e5e7eb'),
-                background: selected === null ? 'white' : selected === idx ? (idx === q.correct_answer ? '#D1FAE5' : '#FEE2E2') : (idx === q.correct_answer ? '#D1FAE5' : '#F9FAFB'),
-                cursor: selected === null ? 'pointer' : 'default',
-                fontSize: '1.125rem'
-              }}
-            >
-              <strong style={{ marginRight: '1rem', color: '#3B82F6' }}>{String.fromCharCode(65 + idx)}.</strong>
-              {opt}
-            </button>
-          ))}
+
+        {/* Selector de Departamento */}
+        <div style={{ marginBottom: '2rem' }}>
+          <label style={{ 
+            display: 'block', 
+            marginBottom: '0.5rem', 
+            fontWeight: '600',
+            color: '#374151'
+          }}>
+            🏢 Departamento
+          </label>
+          <select
+            value={selectedDepartment}
+            onChange={(e) => setSelectedDepartment(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              borderRadius: '0.5rem',
+              border: '2px solid #e5e7eb',
+              fontSize: '1rem',
+              background: 'white',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="all">Todos los departamentos</option>
+            {departments.map(dept => (
+              <option key={dept.id} value={dept.id}>{dept.name}</option>
+            ))}
+          </select>
         </div>
+
+        {/* Resumen de selección */}
+        <div style={{ 
+          background: '#F3F4F6', 
+          padding: '1rem', 
+          borderRadius: '0.5rem',
+          marginBottom: '1.5rem',
+          fontSize: '0.875rem',
+          color: '#6b7280'
+        }}>
+          <strong>Configuración seleccionada:</strong><br />
+          Categoría: {selectedCategory === 'all' ? 'Todas' : categories.find(c => c.id === selectedCategory)?.name}<br />
+          Departamento: {selectedDepartment === 'all' ? 'Todos' : departments.find(d => d.id === selectedDepartment)?.name}
+        </div>
+
+        <button
+          onClick={handleStartGame}
+          style={{
+            width: '100%',
+            padding: '1rem',
+            background: 'linear-gradient(135deg, #3B82F6 0%, #1E40AF 100%)',
+            color: 'white',
+            border: 'none',
+            borderRadius: '0.75rem',
+            fontSize: '1.125rem',
+            fontWeight: '600',
+            cursor: 'pointer',
+            boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.3)'
+          }}
+        >
+          ▶️ Iniciar Juego
+        </button>
       </div>
+
+      <button
+        onClick={() => navigate('/')}
+        style={{
+          width: '100%',
+          padding: '0.75rem',
+          background: 'transparent',
+          color: '#6b7280',
+          border: '2px solid #e5e7eb',
+          borderRadius: '0.75rem',
+          fontSize: '1rem',
+          cursor: 'pointer'
+        }}
+      >
+        ← Volver al Dashboard
+      </button>
     </div>
   );
 };
 
-export default Game;
+export default GameConfig;
