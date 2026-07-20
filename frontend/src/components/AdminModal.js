@@ -22,6 +22,7 @@ const AdminModal = ({ isOpen, onClose }) => {
     options: ['', '', '', ''],
     correct_answer: 0,
     category_id: '',
+    department_id: '',
     departamento: '',
     rol: 'asesor',
     difficulty: 1,
@@ -47,7 +48,6 @@ const AdminModal = ({ isOpen, onClose }) => {
   const fetchData = async () => {
     setLoading(true);
     
-    // Cargar categorías, departamentos y preguntas de la BD
     const [{ data: catData }, { data: deptoData }, { data: questionsData }] = await Promise.all([
       supabase.from('categories').select('*').order('name'),
       supabase.from('departments').select('*').order('name'),
@@ -58,7 +58,6 @@ const AdminModal = ({ isOpen, onClose }) => {
     setDepartamentos(deptoData || []);
     setQuestions(questionsData || []);
     
-    // Calcular estadísticas
     const { data: sessionsData } = await supabase
       .from('game_sessions')
       .select('*, profiles(first_name, last_name)');
@@ -85,16 +84,17 @@ const AdminModal = ({ isOpen, onClose }) => {
     setStats({ users: userStats, totalSessions: sessions.length });
   };
 
-  // Filtrar preguntas - CORREGIDO
+  // FILTRO CORREGIDO - Compara como número
   const preguntasFiltradas = questions.filter(q => {
-    // Convertir category_id a string para comparar correctamente
     const qCategoryId = q.category_id ? String(q.category_id) : '';
     const filterCategory = String(filtroCategoria);
-    const qDepto = q.department_id ? String(q.department_id) : (q.departamento || '');
-    const filterDepto = String(filtroDepartamento);
+    
+    // Departamento: comparar como número
+    const qDeptoId = q.department_id ? Number(q.department_id) : null;
+    const filterDepto = filtroDepartamento === 'todos' ? 'todos' : Number(filtroDepartamento);
     
     const matchCategoria = filtroCategoria === 'todas' || qCategoryId === filterCategory;
-    const matchDepto = filtroDepartamento === 'todos' || qDepto === filterDepto || q.departamento === filtroDepartamento;
+    const matchDepto = filtroDepartamento === 'todos' || qDeptoId === filterDepto;
     const matchRol = filtroRol === 'todos' || q.rol === filtroRol;
     
     return matchCategoria && matchDepto && matchRol;
@@ -133,7 +133,7 @@ const AdminModal = ({ isOpen, onClose }) => {
       options: Array.isArray(question.options) ? question.options : JSON.parse(question.options || '[]'),
       correct_answer: question.correct_answer,
       category_id: question.category_id || '',
-      department_id: question.department_id || question.departamento || '',
+      department_id: question.department_id || '',
       departamento: question.departamento || '',
       rol: question.rol || 'asesor',
       difficulty: question.difficulty || 1,
@@ -146,25 +146,15 @@ const AdminModal = ({ isOpen, onClose }) => {
   const saveCategory = async () => {
     try {
       if (editingCategory) {
-        await supabase
-          .from('categories')
-          .update({
-            name: categoryForm.name,
-            description: categoryForm.description,
-            color: categoryForm.color
-          })
-          .eq('id', editingCategory.id);
+        await supabase.from('categories').update(categoryForm).eq('id', editingCategory.id);
       } else {
         await supabase.from('categories').insert([categoryForm]);
       }
-
       setShowCategoryForm(false);
       setEditingCategory(null);
       setCategoryForm({ name: '', description: '', color: '#3B82F6' });
       await fetchData();
-      
     } catch (err) {
-      console.error('Error:', err);
       alert('Error al guardar categoría');
     }
   };
@@ -172,7 +162,7 @@ const AdminModal = ({ isOpen, onClose }) => {
   const deleteCategory = async (id) => {
     const count = questions.filter(q => String(q.category_id) === String(id)).length;
     if (count > 0) {
-      alert(`⚠️ No puedes eliminar esta categoría. Tiene ${count} preguntas asignadas.`);
+      alert(`⚠️ No puedes eliminar esta categoría. Tiene ${count} preguntas.`);
       return;
     }
     if (!confirm('¿Eliminar esta categoría?')) return;
@@ -182,11 +172,7 @@ const AdminModal = ({ isOpen, onClose }) => {
 
   const editCategory = (cat) => {
     setEditingCategory(cat);
-    setCategoryForm({ 
-      name: cat.name, 
-      description: cat.description || '', 
-      color: cat.color || '#3B82F6' 
-    });
+    setCategoryForm({ name: cat.name, description: cat.description || '', color: cat.color || '#3B82F6' });
     setShowCategoryForm(true);
   };
 
@@ -194,33 +180,23 @@ const AdminModal = ({ isOpen, onClose }) => {
   const saveDepto = async () => {
     try {
       if (editingDepto) {
-        await supabase
-          .from('departments')
-          .update({
-            name: deptoForm.name,
-            description: deptoForm.description,
-            color: deptoForm.color
-          })
-          .eq('id', editingDepto.id);
+        await supabase.from('departments').update(deptoForm).eq('id', editingDepto.id);
       } else {
         await supabase.from('departments').insert([deptoForm]);
       }
-
       setShowDeptoForm(false);
       setEditingDepto(null);
       setDeptoForm({ name: '', description: '', color: '#3B82F6' });
       await fetchData();
-      
     } catch (err) {
-      console.error('Error:', err);
       alert('Error al guardar departamento');
     }
   };
 
   const deleteDepto = async (id) => {
-    const count = questions.filter(q => String(q.department_id) === String(id) || q.departamento === id).length;
+    const count = questions.filter(q => Number(q.department_id) === Number(id)).length;
     if (count > 0) {
-      alert(`⚠️ No puedes eliminar este departamento. Tiene ${count} preguntas asignadas.`);
+      alert(`⚠️ No puedes eliminar este departamento. Tiene ${count} preguntas.`);
       return;
     }
     if (!confirm('¿Eliminar este departamento?')) return;
@@ -271,7 +247,6 @@ const AdminModal = ({ isOpen, onClose }) => {
   return (
     <div style={modalOverlayStyle}>
       <div style={modalContentStyle}>
-        {/* Sidebar */}
         <div style={sidebarStyle}>
           <h2 style={{ marginBottom: '2rem' }}>⚙️ Admin</h2>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -283,7 +258,6 @@ const AdminModal = ({ isOpen, onClose }) => {
           <button onClick={onClose} style={closeButtonStyle}>✕ Cerrar</button>
         </div>
 
-        {/* Content */}
         <div style={{ flex: 1, padding: '2rem', overflow: 'auto' }}>
           {loading ? <div>Cargando...</div> : (
             <>
@@ -345,7 +319,6 @@ const AdminModal = ({ isOpen, onClose }) => {
   );
 };
 
-// Sub-componentes
 const TabButton = ({ active, onClick, children }) => (
   <button onClick={onClick} style={tabButtonStyle(active)}>{children}</button>
 );
@@ -370,7 +343,6 @@ const QuestionsTab = ({
   <div>
     <h2 style={{ marginBottom: '1rem' }}>❓ Gestión de Preguntas ({questions.length})</h2>
     
-    {/* Filtros */}
     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
       <select value={filtroCategoria} onChange={(e) => onFiltroCategoria(e.target.value)} style={selectStyle}>
         <option value="todas">📁 Todas las categorías</option>
@@ -414,7 +386,7 @@ const QuestionsTab = ({
           </div>
           <div>
             <label>Departamento:</label>
-            <select value={formData.department_id || formData.departamento} onChange={(e) => onFormChange({...formData, department_id: e.target.value, departamento: e.target.value})} style={{ width: '100%', padding: '0.5rem' }}>
+            <select value={formData.department_id} onChange={(e) => onFormChange({...formData, department_id: e.target.value})} style={{ width: '100%', padding: '0.5rem' }}>
               <option value="">Seleccionar...</option>
               {departamentos.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
@@ -501,7 +473,6 @@ const EstructuraTab = ({
     <h2 style={{ marginBottom: '1.5rem' }}>🏗️ Categorías y Departamentos</h2>
     
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-      {/* Categorías */}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h3>📁 Categorías ({categories.length})</h3>
@@ -510,26 +481,11 @@ const EstructuraTab = ({
         
         {showCategoryForm ? (
           <div style={formStyle}>
-            <input 
-              placeholder="Nombre de categoría"
-              value={categoryForm.name}
-              onChange={(e) => onCategoryFormChange({...categoryForm, name: e.target.value})}
-              style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
-            />
-            <input 
-              placeholder="Descripción"
-              value={categoryForm.description}
-              onChange={(e) => onCategoryFormChange({...categoryForm, description: e.target.value})}
-              style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
-            />
+            <input placeholder="Nombre" value={categoryForm.name} onChange={(e) => onCategoryFormChange({...categoryForm, name: e.target.value})} style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }} />
+            <input placeholder="Descripción" value={categoryForm.description} onChange={(e) => onCategoryFormChange({...categoryForm, description: e.target.value})} style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }} />
             <div style={{ marginBottom: '0.5rem' }}>
               <label>Color:</label>
-              <input 
-                type="color"
-                value={categoryForm.color}
-                onChange={(e) => onCategoryFormChange({...categoryForm, color: e.target.value})}
-                style={{ width: '100%', height: '40px' }}
-              />
+              <input type="color" value={categoryForm.color} onChange={(e) => onCategoryFormChange({...categoryForm, color: e.target.value})} style={{ width: '100%', height: '40px' }} />
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button onClick={onSaveCategory} style={saveButtonStyle}>💾 Guardar</button>
@@ -543,7 +499,7 @@ const EstructuraTab = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <div style={{ width: '20px', height: '20px', background: cat.color, borderRadius: '50%' }}></div>
                   <span>{cat.name}</span>
-                  <small style={{ color: '#6b7280' }}>({questions.filter(q => String(q.category_id) === String(cat.id)).length} preguntas)</small>
+                  <small style={{ color: '#6b7280' }}>({questions.filter(q => String(q.category_id) === String(cat.id)).length})</small>
                 </div>
                 <div>
                   <button onClick={() => onEditCategory(cat)} style={actionButtonStyle('#3B82F6')}>✏️</button>
@@ -555,7 +511,6 @@ const EstructuraTab = ({
         )}
       </div>
 
-      {/* Departamentos */}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h3>🏢 Departamentos ({departamentos.length})</h3>
@@ -564,26 +519,11 @@ const EstructuraTab = ({
         
         {showDeptoForm ? (
           <div style={formStyle}>
-            <input 
-              placeholder="Nombre del departamento"
-              value={deptoForm.name}
-              onChange={(e) => onDeptoFormChange({...deptoForm, name: e.target.value})}
-              style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
-            />
-            <input 
-              placeholder="Descripción"
-              value={deptoForm.description}
-              onChange={(e) => onDeptoFormChange({...deptoForm, description: e.target.value})}
-              style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
-            />
+            <input placeholder="Nombre" value={deptoForm.name} onChange={(e) => onDeptoFormChange({...deptoForm, name: e.target.value})} style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }} />
+            <input placeholder="Descripción" value={deptoForm.description} onChange={(e) => onDeptoFormChange({...deptoForm, description: e.target.value})} style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }} />
             <div style={{ marginBottom: '0.5rem' }}>
               <label>Color:</label>
-              <input 
-                type="color"
-                value={deptoForm.color}
-                onChange={(e) => onDeptoFormChange({...deptoForm, color: e.target.value})}
-                style={{ width: '100%', height: '40px' }}
-              />
+              <input type="color" value={deptoForm.color} onChange={(e) => onDeptoFormChange({...deptoForm, color: e.target.value})} style={{ width: '100%', height: '40px' }} />
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button onClick={onSaveDepto} style={saveButtonStyle}>💾 Guardar</button>
@@ -597,7 +537,7 @@ const EstructuraTab = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <div style={{ width: '20px', height: '20px', background: depto.color, borderRadius: '50%' }}></div>
                   <span>{depto.name}</span>
-                  <small style={{ color: '#6b7280' }}>({questions.filter(q => String(q.department_id) === String(depto.id) || q.departamento === depto.id).length} preguntas)</small>
+                  <small style={{ color: '#6b7280' }}>({questions.filter(q => Number(q.department_id) === Number(depto.id)).length})</small>
                 </div>
                 <div>
                   <button onClick={() => onEditDepto(depto)} style={actionButtonStyle('#3B82F6')}>✏️</button>
