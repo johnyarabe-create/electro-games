@@ -5,12 +5,7 @@ const AdminModal = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [questions, setQuestions] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [departamentos, setDepartamentos] = useState([
-    { id: 'ventas', name: 'Ventas', color: '#3B82F6' },
-    { id: 'garantia', name: 'Garantía', color: '#F59E0B' },
-    { id: 'atencion', name: 'Atención al Cliente', color: '#10B981' },
-    { id: 'seguridad', name: 'Seguridad', color: '#EF4444' }
-  ]);
+  const [departamentos, setDepartamentos] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   
@@ -27,7 +22,7 @@ const AdminModal = ({ isOpen, onClose }) => {
     options: ['', '', '', ''],
     correct_answer: 0,
     category_id: '',
-    departamento: 'ventas',
+    departamento: '',
     rol: 'asesor',
     difficulty: 1,
     xp_reward: 10
@@ -41,7 +36,7 @@ const AdminModal = ({ isOpen, onClose }) => {
   // Estados para CRUD departamentos
   const [editingDepto, setEditingDepto] = useState(null);
   const [showDeptoForm, setShowDeptoForm] = useState(false);
-  const [deptoForm, setDeptoForm] = useState({ id: '', name: '', color: '#3B82F6' });
+  const [deptoForm, setDeptoForm] = useState({ name: '', description: '', color: '#3B82F6' });
 
   useEffect(() => {
     if (isOpen) {
@@ -52,14 +47,18 @@ const AdminModal = ({ isOpen, onClose }) => {
   const fetchData = async () => {
     setLoading(true);
     
-    const [{ data: catData }, { data: questionsData }] = await Promise.all([
-      supabase.from('categories').select('*'),
-      supabase.from('questions').select('*, categories(name)').order('id')
+    // Cargar categorías, departamentos y preguntas de la BD
+    const [{ data: catData }, { data: deptoData }, { data: questionsData }] = await Promise.all([
+      supabase.from('categories').select('*').order('name'),
+      supabase.from('departments').select('*').order('name'),
+      supabase.from('questions').select('*, categories(name, color)').order('id', { ascending: false })
     ]);
     
     setCategories(catData || []);
+    setDepartamentos(deptoData || []);
     setQuestions(questionsData || []);
     
+    // Calcular estadísticas
     const { data: sessionsData } = await supabase
       .from('game_sessions')
       .select('*, profiles(first_name, last_name)');
@@ -86,11 +85,18 @@ const AdminModal = ({ isOpen, onClose }) => {
     setStats({ users: userStats, totalSessions: sessions.length });
   };
 
-  // Filtrar preguntas
+  // Filtrar preguntas - CORREGIDO
   const preguntasFiltradas = questions.filter(q => {
-    const matchCategoria = filtroCategoria === 'todas' || q.category_id === filtroCategoria;
-    const matchDepto = filtroDepartamento === 'todos' || q.departamento === filtroDepartamento;
+    // Convertir category_id a string para comparar correctamente
+    const qCategoryId = q.category_id ? String(q.category_id) : '';
+    const filterCategory = String(filtroCategoria);
+    const qDepto = q.department_id ? String(q.department_id) : (q.departamento || '');
+    const filterDepto = String(filtroDepartamento);
+    
+    const matchCategoria = filtroCategoria === 'todas' || qCategoryId === filterCategory;
+    const matchDepto = filtroDepartamento === 'todos' || qDepto === filterDepto || q.departamento === filtroDepartamento;
     const matchRol = filtroRol === 'todos' || q.rol === filtroRol;
+    
     return matchCategoria && matchDepto && matchRol;
   });
 
@@ -124,75 +130,47 @@ const AdminModal = ({ isOpen, onClose }) => {
     setEditingQuestion(question);
     setFormData({
       question_text: question.question_text,
-      options: Array.isArray(question.options) ? question.options : JSON.parse(question.options),
+      options: Array.isArray(question.options) ? question.options : JSON.parse(question.options || '[]'),
       correct_answer: question.correct_answer,
-      category_id: question.category_id,
-      departamento: question.departamento || 'ventas',
+      category_id: question.category_id || '',
+      department_id: question.department_id || question.departamento || '',
+      departamento: question.departamento || '',
       rol: question.rol || 'asesor',
-      difficulty: question.difficulty,
-      xp_reward: question.xp_reward
+      difficulty: question.difficulty || 1,
+      xp_reward: question.xp_reward || 10
     });
     setShowForm(true);
   };
 
-  // CRUD Categorías - CORREGIDO CON DEBUG
+  // CRUD Categorías
   const saveCategory = async () => {
-    console.log('🔵 Guardando categoría...', { editingCategory, categoryForm });
-    
     try {
       if (editingCategory) {
-        console.log('📝 Actualizando categoría ID:', editingCategory.id);
-        
-        const { data, error } = await supabase
+        await supabase
           .from('categories')
           .update({
             name: categoryForm.name,
             description: categoryForm.description,
             color: categoryForm.color
           })
-          .eq('id', editingCategory.id)
-          .select();
-        
-        console.log('✅ Respuesta Supabase:', { data, error });
-        
-        if (error) {
-          alert('❌ Error al actualizar: ' + error.message);
-          console.error(error);
-          return;
-        }
-        
-        if (data) {
-          console.log('✅ Actualización exitosa:', data);
-        }
+          .eq('id', editingCategory.id);
       } else {
-        // Crear nueva
-        const { data, error } = await supabase
-          .from('categories')
-          .insert([categoryForm])
-          .select();
-        
-        if (error) {
-          alert('❌ Error al crear: ' + error.message);
-          console.error(error);
-          return;
-        }
-        console.log('✅ Categoría creada:', data);
+        await supabase.from('categories').insert([categoryForm]);
       }
 
       setShowCategoryForm(false);
       setEditingCategory(null);
       setCategoryForm({ name: '', description: '', color: '#3B82F6' });
       await fetchData();
-      alert('✅ Categoría guardada correctamente');
       
     } catch (err) {
-      console.error('💥 Error catch:', err);
-      alert('💥 Error inesperado: ' + err.message);
+      console.error('Error:', err);
+      alert('Error al guardar categoría');
     }
   };
 
   const deleteCategory = async (id) => {
-    const count = questions.filter(q => q.category_id === id).length;
+    const count = questions.filter(q => String(q.category_id) === String(id)).length;
     if (count > 0) {
       alert(`⚠️ No puedes eliminar esta categoría. Tiene ${count} preguntas asignadas.`);
       return;
@@ -203,7 +181,6 @@ const AdminModal = ({ isOpen, onClose }) => {
   };
 
   const editCategory = (cat) => {
-    console.log('✏️ Editando categoría:', cat);
     setEditingCategory(cat);
     setCategoryForm({ 
       name: cat.name, 
@@ -214,26 +191,41 @@ const AdminModal = ({ isOpen, onClose }) => {
   };
 
   // CRUD Departamentos
-  const saveDepto = () => {
-    if (editingDepto) {
-      setDepartamentos(prev => prev.map(d => d.id === editingDepto.id ? { ...deptoForm, id: deptoForm.id.toLowerCase().replace(/\s+/g, '_') } : d));
-    } else {
-      const newId = deptoForm.id.toLowerCase().replace(/\s+/g, '_');
-      setDepartamentos(prev => [...prev, { ...deptoForm, id: newId }]);
+  const saveDepto = async () => {
+    try {
+      if (editingDepto) {
+        await supabase
+          .from('departments')
+          .update({
+            name: deptoForm.name,
+            description: deptoForm.description,
+            color: deptoForm.color
+          })
+          .eq('id', editingDepto.id);
+      } else {
+        await supabase.from('departments').insert([deptoForm]);
+      }
+
+      setShowDeptoForm(false);
+      setEditingDepto(null);
+      setDeptoForm({ name: '', description: '', color: '#3B82F6' });
+      await fetchData();
+      
+    } catch (err) {
+      console.error('Error:', err);
+      alert('Error al guardar departamento');
     }
-    setShowDeptoForm(false);
-    setEditingDepto(null);
-    setDeptoForm({ id: '', name: '', color: '#3B82F6' });
   };
 
-  const deleteDepto = (id) => {
-    const count = questions.filter(q => q.departamento === id).length;
+  const deleteDepto = async (id) => {
+    const count = questions.filter(q => String(q.department_id) === String(id) || q.departamento === id).length;
     if (count > 0) {
       alert(`⚠️ No puedes eliminar este departamento. Tiene ${count} preguntas asignadas.`);
       return;
     }
     if (!confirm('¿Eliminar este departamento?')) return;
-    setDepartamentos(prev => prev.filter(d => d.id !== id));
+    await supabase.from('departments').delete().eq('id', id);
+    fetchData();
   };
 
   const newQuestion = () => {
@@ -248,7 +240,8 @@ const AdminModal = ({ isOpen, onClose }) => {
       options: ['', '', '', ''],
       correct_answer: 0,
       category_id: categories[0]?.id || '',
-      departamento: departamentos[0]?.id || 'ventas',
+      department_id: departamentos[0]?.id || '',
+      departamento: '',
       rol: 'asesor',
       difficulty: 1,
       xp_reward: 10
@@ -330,7 +323,7 @@ const AdminModal = ({ isOpen, onClose }) => {
                   editingCategory={editingCategory}
                   editingDepto={editingDepto}
                   onNewCategory={() => { setEditingCategory(null); setCategoryForm({ name: '', description: '', color: '#3B82F6' }); setShowCategoryForm(true); }}
-                  onNewDepto={() => { setEditingDepto(null); setDeptoForm({ id: '', name: '', color: '#3B82F6' }); setShowDeptoForm(true); }}
+                  onNewDepto={() => { setEditingDepto(null); setDeptoForm({ name: '', description: '', color: '#3B82F6' }); setShowDeptoForm(true); }}
                   onEditCategory={editCategory}
                   onEditDepto={(d) => { setEditingDepto(d); setDeptoForm({ ...d }); setShowDeptoForm(true); }}
                   onDeleteCategory={deleteCategory}
@@ -362,8 +355,8 @@ const DashboardTab = ({ stats }) => (
     <h2 style={{ marginBottom: '1.5rem' }}>📊 Dashboard</h2>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
       <StatCard title="Total Sesiones" value={stats?.totalSessions || 0} color="#3B82F6" />
-      <StatCard title="Usuarios" value={Object.keys(stats?.users || {}).length} color="#10B981" />
-      <StatCard title="Preguntas" value={stats?.totalQuestions || 0} color="#F59E0B" />
+      <StatCard title="Usuarios Activos" value={Object.keys(stats?.users || {}).length} color="#10B981" />
+      <StatCard title="Total Preguntas" value={stats?.totalQuestions || 0} color="#F59E0B" />
     </div>
   </div>
 );
@@ -375,7 +368,7 @@ const QuestionsTab = ({
   onFormChange, onOptionChange
 }) => (
   <div>
-    <h2 style={{ marginBottom: '1rem' }}>❓ Gestión de Preguntas</h2>
+    <h2 style={{ marginBottom: '1rem' }}>❓ Gestión de Preguntas ({questions.length})</h2>
     
     {/* Filtros */}
     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
@@ -415,12 +408,14 @@ const QuestionsTab = ({
           <div>
             <label>Categoría:</label>
             <select value={formData.category_id} onChange={(e) => onFormChange({...formData, category_id: e.target.value})} style={{ width: '100%', padding: '0.5rem' }}>
+              <option value="">Seleccionar...</option>
               {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
             </select>
           </div>
           <div>
             <label>Departamento:</label>
-            <select value={formData.departamento} onChange={(e) => onFormChange({...formData, departamento: e.target.value})} style={{ width: '100%', padding: '0.5rem' }}>
+            <select value={formData.department_id || formData.departamento} onChange={(e) => onFormChange({...formData, department_id: e.target.value, departamento: e.target.value})} style={{ width: '100%', padding: '0.5rem' }}>
+              <option value="">Seleccionar...</option>
               {departamentos.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </div>
@@ -439,7 +434,7 @@ const QuestionsTab = ({
             <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
               <input type="radio" name="correct" checked={formData.correct_answer === idx} onChange={() => onFormChange({...formData, correct_answer: idx})} />
               <input type="text" value={opt} onChange={(e) => onOptionChange(idx, e.target.value)} placeholder={`Opción ${String.fromCharCode(65 + idx)}`} style={{ flex: 1, padding: '0.5rem' }} />
-              {formData.correct_answer === idx && <span style={{ color: '#10B981' }}>✓</span>}
+              {formData.correct_answer === idx && <span style={{ color: '#10B981' }}>✓ Correcta</span>}
             </div>
           ))}
         </div>
@@ -450,31 +445,46 @@ const QuestionsTab = ({
         </div>
       </div>
     ) : (
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-        <thead>
-          <tr style={{ background: '#f3f4f6' }}>
-            <th style={thStyle}>Pregunta</th>
-            <th style={thStyle}>Categoría</th>
-            <th style={thStyle}>Depto</th>
-            <th style={thStyle}>Rol</th>
-            <th style={thStyle}>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {questions.map(q => (
-            <tr key={q.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-              <td style={tdStyle}>{q.question_text.substring(0, 50)}...</td>
-              <td style={tdStyle}>{q.categories?.name}</td>
-              <td style={tdStyle}><span style={deptoBadgeStyle(q.departamento)}>{q.departamento}</span></td>
-              <td style={tdStyle}>{q.rol === 'gerente' ? '👔' : '🎧'} {q.rol}</td>
-              <td style={tdStyle}>
-                <button onClick={() => onEdit(q)} style={actionButtonStyle('#3B82F6')}>✏️</button>
-                <button onClick={() => onDelete(q.id)} style={actionButtonStyle('#EF4444')}>🗑️</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <>
+        {questions.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
+            <p>No hay preguntas con los filtros seleccionados</p>
+            <button onClick={() => { onFiltroCategoria('todas'); onFiltroDepartamento('todos'); onFiltroRol('todos'); }} style={{ marginTop: '1rem', padding: '0.5rem 1rem', background: '#3B82F6', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' }}>
+              Ver todas las preguntas
+            </button>
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+            <thead>
+              <tr style={{ background: '#f3f4f6' }}>
+                <th style={thStyle}>Pregunta</th>
+                <th style={thStyle}>Categoría</th>
+                <th style={thStyle}>Depto</th>
+                <th style={thStyle}>Rol</th>
+                <th style={thStyle}>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {questions.map(q => (
+                <tr key={q.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                  <td style={tdStyle}>{q.question_text?.substring(0, 60)}...</td>
+                  <td style={tdStyle}>
+                    <span style={{ background: q.categories?.color || '#ccc', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.75rem' }}>
+                      {q.categories?.name || 'Sin categoría'}
+                    </span>
+                  </td>
+                  <td style={tdStyle}>{q.departamento || '-'}</td>
+                  <td style={tdStyle}>{q.rol === 'gerente' ? '👔' : '🎧'} {q.rol}</td>
+                  <td style={tdStyle}>
+                    <button onClick={() => onEdit(q)} style={actionButtonStyle('#3B82F6')}>✏️</button>
+                    <button onClick={() => onDelete(q.id)} style={actionButtonStyle('#EF4444')}>🗑️</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </>
     )}
   </div>
 );
@@ -494,7 +504,7 @@ const EstructuraTab = ({
       {/* Categorías */}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h3>📁 Categorías de Productos</h3>
+          <h3>📁 Categorías ({categories.length})</h3>
           {!showCategoryForm && <button onClick={onNewCategory} style={newButtonStyle}>+ Nueva</button>}
         </div>
         
@@ -533,7 +543,7 @@ const EstructuraTab = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <div style={{ width: '20px', height: '20px', background: cat.color, borderRadius: '50%' }}></div>
                   <span>{cat.name}</span>
-                  <small style={{ color: '#6b7280' }}>({questions.filter(q => q.category_id === cat.id).length} preguntas)</small>
+                  <small style={{ color: '#6b7280' }}>({questions.filter(q => String(q.category_id) === String(cat.id)).length} preguntas)</small>
                 </div>
                 <div>
                   <button onClick={() => onEditCategory(cat)} style={actionButtonStyle('#3B82F6')}>✏️</button>
@@ -548,24 +558,22 @@ const EstructuraTab = ({
       {/* Departamentos */}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h3>🏢 Departamentos</h3>
+          <h3>🏢 Departamentos ({departamentos.length})</h3>
           {!showDeptoForm && <button onClick={onNewDepto} style={newButtonStyle}>+ Nuevo</button>}
         </div>
         
         {showDeptoForm ? (
           <div style={formStyle}>
-            {!editingDepto && (
-              <input 
-                placeholder="ID (ej: ventas)"
-                value={deptoForm.id}
-                onChange={(e) => onDeptoFormChange({...deptoForm, id: e.target.value})}
-                style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
-              />
-            )}
             <input 
               placeholder="Nombre del departamento"
               value={deptoForm.name}
               onChange={(e) => onDeptoFormChange({...deptoForm, name: e.target.value})}
+              style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
+            />
+            <input 
+              placeholder="Descripción"
+              value={deptoForm.description}
+              onChange={(e) => onDeptoFormChange({...deptoForm, description: e.target.value})}
               style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
             />
             <div style={{ marginBottom: '0.5rem' }}>
@@ -589,7 +597,7 @@ const EstructuraTab = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <div style={{ width: '20px', height: '20px', background: depto.color, borderRadius: '50%' }}></div>
                   <span>{depto.name}</span>
-                  <small style={{ color: '#6b7280' }}>({questions.filter(q => q.departamento === depto.id).length} preguntas)</small>
+                  <small style={{ color: '#6b7280' }}>({questions.filter(q => String(q.department_id) === String(depto.id) || q.departamento === depto.id).length} preguntas)</small>
                 </div>
                 <div>
                   <button onClick={() => onEditDepto(depto)} style={actionButtonStyle('#3B82F6')}>✏️</button>
@@ -635,7 +643,7 @@ const sidebarStyle = { width: '250px', background: '#1e293b', color: 'white', pa
 const tabButtonStyle = (active) => ({ padding: '0.75rem 1rem', textAlign: 'left', background: active ? '#3B82F6' : 'transparent', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' });
 const closeButtonStyle = { marginTop: 'auto', padding: '0.75rem', background: '#ef4444', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' };
 const StatCard = ({ title, value, color }) => <div style={{ background: color + '10', padding: '1.5rem', borderRadius: '0.75rem', borderLeft: `4px solid ${color}` }}><h3 style={{ color: '#6b7280', fontSize: '0.875rem' }}>{title}</h3><p style={{ fontSize: '2rem', fontWeight: 'bold', color }}>{value}</p></div>;
-const selectStyle = { padding: '0.5rem 1rem', borderRadius: '0.5rem', border: '1px solid #e5e7eb', minWidth: '150px' };
+const selectStyle = { padding: '0.5rem 1rem', borderRadius: '0.5rem', border: '1px solid #e5e7eb', minWidth: '180px' };
 const newButtonStyle = { padding: '0.75rem 1.5rem', background: '#10B981', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' };
 const formStyle = { background: '#f9fafb', padding: '1.5rem', borderRadius: '0.75rem', marginBottom: '1rem' };
 const saveButtonStyle = { padding: '0.75rem 1.5rem', background: '#10B981', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' };
@@ -643,7 +651,6 @@ const cancelButtonStyle = { padding: '0.75rem 1.5rem', background: '#6b7280', co
 const thStyle = { padding: '1rem', textAlign: 'left', fontWeight: '600', background: '#f3f4f6' };
 const tdStyle = { padding: '1rem' };
 const actionButtonStyle = (color) => ({ padding: '0.5rem', marginRight: '0.5rem', background: color, color: 'white', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' });
-const deptoBadgeStyle = (depto) => ({ background: {ventas: '#3B82F6', garantia: '#F59E0B', atencion: '#10B981', seguridad: '#EF4444'}[depto] || '#6b7280', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.75rem', textTransform: 'capitalize' });
 const analysisCardStyle = (score) => ({ background: '#f9fafb', padding: '1.5rem', borderRadius: '0.75rem', marginBottom: '1rem', borderLeft: '4px solid ' + (score >= 80 ? '#10B981' : score >= 60 ? '#F59E0B' : '#EF4444') });
 
 export default AdminModal;
