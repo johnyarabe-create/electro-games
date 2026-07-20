@@ -12,7 +12,6 @@ const GameConfig = () => {
 
   useEffect(() => {
     fetchFilters();
-    // Cargar configuración guardada si existe
     const savedConfig = localStorage.getItem('gameConfig');
     if (savedConfig) {
       const config = JSON.parse(savedConfig);
@@ -47,11 +46,7 @@ const GameConfig = () => {
   };
 
   if (loading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '3rem' }}>
-        Cargando opciones...
-      </div>
-    );
+    return <div style={{ textAlign: 'center', padding: '3rem' }}>Cargando opciones...</div>;
   }
 
   return (
@@ -68,7 +63,6 @@ const GameConfig = () => {
         boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
         marginBottom: '2rem'
       }}>
-        {/* Selector de Categoría */}
         <div style={{ marginBottom: '1.5rem' }}>
           <label style={{ 
             display: 'block', 
@@ -98,7 +92,6 @@ const GameConfig = () => {
           </select>
         </div>
 
-        {/* Selector de Departamento */}
         <div style={{ marginBottom: '2rem' }}>
           <label style={{ 
             display: 'block', 
@@ -128,7 +121,6 @@ const GameConfig = () => {
           </select>
         </div>
 
-        {/* Resumen de selección */}
         <div style={{ 
           background: '#F3F4F6', 
           padding: '1rem', 
