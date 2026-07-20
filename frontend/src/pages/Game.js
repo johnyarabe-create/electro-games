@@ -14,55 +14,70 @@ const Game = () => {
   const [finished, setFinished] = useState(false);
   const [results, setResults] = useState(null);
   const [config, setConfig] = useState({ category: 'all', department: 'all' });
+  const [noQuestions, setNoQuestions] = useState(false);
 
   useEffect(() => {
     // Cargar configuración de localStorage
     const savedConfig = localStorage.getItem('gameConfig');
     if (savedConfig) {
-      setConfig(JSON.parse(savedConfig));
+      try {
+        const parsedConfig = JSON.parse(savedConfig);
+        setConfig(parsedConfig);
+        fetchQuestions(parsedConfig);
+      } catch (e) {
+        console.error('Error parsing config:', e);
+        fetchQuestions({ category: 'all', department: 'all' });
+      }
+    } else {
+      fetchQuestions({ category: 'all', department: 'all' });
     }
-    fetchQuestions(savedConfig ? JSON.parse(savedConfig) : { category: 'all', department: 'all' });
   }, []);
 
   const fetchQuestions = async (gameConfig) => {
-    // Construir query base
-    let query = supabase
-      .from('questions')
-      .select('*, categories(name, color)')
-      .eq('is_active', true);
+    setLoading(true);
+    setNoQuestions(false);
     
-    // Aplicar filtro de categoría si no es 'all'
-    if (gameConfig?.category && gameConfig.category !== 'all') {
-      query = query.eq('category_id', gameConfig.category);
-    }
-    
-    // Aplicar filtro de departamento si no es 'all'
-    if (gameConfig?.department && gameConfig.department !== 'all') {
-      query = query.eq('department_id', gameConfig.department);
-    }
-    
-    const { data, error } = await query.order('id', { ascending: false }).limit(10);
-    
-    if (error) {
-      console.error('Error:', error);
-      return;
-    }
-    
-    // Si no hay preguntas con los filtros, cargar todas
-    let questionsToUse = data || [];
-    if (questionsToUse.length === 0) {
-      const { data: allData } = await supabase
+    try {
+      // Construir query base
+      let query = supabase
         .from('questions')
         .select('*, categories(name, color)')
-        .eq('is_active', true)
-        .limit(10);
-      questionsToUse = allData || [];
+        .eq('is_active', true);
+      
+      // Aplicar filtro de categoría si no es 'all'
+      if (gameConfig?.category && gameConfig.category !== 'all') {
+        query = query.eq('category_id', gameConfig.category);
+      }
+      
+      // Aplicar filtro de departamento si no es 'all'
+      if (gameConfig?.department && gameConfig.department !== 'all') {
+        query = query.eq('department_id', gameConfig.department);
+      }
+      
+      const { data, error } = await query.order('id', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching questions:', error);
+        return;
+      }
+      
+      // Si no hay preguntas con los filtros aplicados
+      if (!data || data.length === 0) {
+        setNoQuestions(true);
+        setQuestions([]);
+        setLoading(false);
+        return;
+      }
+      
+      // Mezclar preguntas aleatoriamente y tomar máximo 10
+      const shuffled = data.sort(() => 0.5 - Math.random()).slice(0, 10);
+      setQuestions(shuffled);
+      
+    } catch (err) {
+      console.error('Error:', err);
+    } finally {
+      setLoading(false);
     }
-    
-    // Mezclar preguntas aleatoriamente
-    const shuffled = questionsToUse.sort(() => 0.5 - Math.random()).slice(0, 10);
-    setQuestions(shuffled);
-    setLoading(false);
   };
 
   const handleAnswer = async (index) => {
@@ -128,7 +143,65 @@ const Game = () => {
     setFinished(true);
   };
 
-  if (loading) return <div style={{ textAlign: 'center', padding: '3rem' }}>Cargando preguntas...</div>;
+  // Pantalla de carga
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '3rem' }}>
+        <p>Cargando preguntas...</p>
+        {config.category !== 'all' && (
+          <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+            Filtrando por categoría seleccionada...
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // Pantalla de no hay preguntas
+  if (noQuestions) {
+    return (
+      <div style={{ textAlign: 'center', padding: '3rem' }}>
+        <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>😕</div>
+        <h2 style={{ marginBottom: '1rem', color: '#EF4444' }}>No hay preguntas disponibles</h2>
+        <p style={{ color: '#6b7280', marginBottom: '2rem' }}>
+          No se encontraron preguntas para los filtros seleccionados:
+          <br />
+          <strong>Categoría:</strong> {config.category === 'all' ? 'Todas' : config.category}
+          <br />
+          <strong>Departamento:</strong> {config.department === 'all' ? 'Todos' : config.department}
+        </p>
+        <button 
+          onClick={() => navigate('/game-config')} 
+          style={{ 
+            padding: '1rem 2rem', 
+            background: '#3B82F6', 
+            color: 'white', 
+            border: 'none', 
+            borderRadius: '0.5rem', 
+            cursor: 'pointer',
+            fontSize: '1rem',
+            marginRight: '1rem'
+          }}
+        >
+          Cambiar Filtros
+        </button>
+        <button 
+          onClick={() => fetchQuestions({ category: 'all', department: 'all' })} 
+          style={{ 
+            padding: '1rem 2rem', 
+            background: 'transparent', 
+            color: '#6b7280', 
+            border: '2px solid #e5e7eb', 
+            borderRadius: '0.5rem', 
+            cursor: 'pointer',
+            fontSize: '1rem'
+          }}
+        >
+          Ver Todas las Preguntas
+        </button>
+      </div>
+    );
+  }
 
   if (finished) {
     return (
@@ -166,6 +239,39 @@ const Game = () => {
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+      {/* Mostrar filtros activos */}
+      {(config.category !== 'all' || config.department !== 'all') && (
+        <div style={{ 
+          background: '#DBEAFE', 
+          padding: '0.75rem 1rem', 
+          borderRadius: '0.5rem',
+          marginBottom: '1rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <span style={{ fontSize: '0.875rem', color: '#1E40AF' }}>
+            <strong>Filtros:</strong>{' '}
+            {config.category !== 'all' && `Categoría: ${config.category}`}
+            {config.category !== 'all' && config.department !== 'all' && ' | '}
+            {config.department !== 'all' && `Depto: ${config.department}`}
+          </span>
+          <button 
+            onClick={() => navigate('/game-config')}
+            style={{
+              fontSize: '0.75rem',
+              color: '#1E40AF',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              textDecoration: 'underline'
+            }}
+          >
+            Cambiar
+          </button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
         <span style={{ fontSize: '1.125rem', color: '#6b7280' }}>
           Pregunta {current + 1} de {questions.length}
