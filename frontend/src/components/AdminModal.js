@@ -492,7 +492,9 @@ const QuestionsTab = ({
                       {q.categories?.name || 'Sin categoría'}
                     </span>
                   </td>
-                  <td style={tdStyle}>{q.departamento || '-'}</td>
+                  <td style={tdStyle}>
+  {departamentos.find(d => Number(d.id) === Number(q.department_id))?.name || q.departamento || '-'}
+</td>
                   <td style={tdStyle}>{q.rol === 'gerente' ? '👔' : '🎧'} {q.rol}</td>
                   <td style={tdStyle}>
                     <button onClick={() => onEdit(q)} style={actionButtonStyle('#3B82F6')}>✏️</button>
