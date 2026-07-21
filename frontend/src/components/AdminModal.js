@@ -100,24 +100,62 @@ const AdminModal = ({ isOpen, onClose }) => {
     return matchCategoria && matchDepto && matchRol;
   });
 
-  // CRUD Preguntas
+  // CRUD Preguntas - CORREGIDA CON DEBUG
   const saveQuestion = async () => {
     const questionData = {
       ...formData,
       options: JSON.stringify(formData.options),
       is_active: true
     };
+    
+    // DEBUG: Ver qué se está enviando
+    console.log('🔵 Guardando pregunta:', questionData);
+    console.log('📝 Category ID:', questionData.category_id, 'Tipo:', typeof questionData.category_id);
+    console.log('🏢 Department ID:', questionData.department_id, 'Tipo:', typeof questionData.department_id);
+    console.log('✏️ Modo:', editingQuestion ? 'EDITAR' : 'CREAR');
 
     if (editingQuestion) {
-      await supabase.from('questions').update(questionData).eq('id', editingQuestion.id);
+      console.log('🔄 Actualizando pregunta ID:', editingQuestion.id);
+      
+      const { data, error } = await supabase
+        .from('questions')
+        .update(questionData)
+        .eq('id', editingQuestion.id)
+        .select();
+      
+      console.log('✅ Respuesta Supabase:', { data, error });
+      
+      if (error) {
+        alert('❌ Error al actualizar: ' + error.message);
+        console.error('Error completo:', error);
+        return;
+      }
+      
+      if (data) {
+        console.log('✅ Actualización exitosa:', data);
+      }
     } else {
-      await supabase.from('questions').insert([questionData]);
+      console.log('➕ Creando nueva pregunta');
+      
+      const { data, error } = await supabase
+        .from('questions')
+        .insert([questionData])
+        .select();
+      
+      console.log('✅ Respuesta insert:', { data, error });
+      
+      if (error) {
+        alert('❌ Error al crear: ' + error.message);
+        console.error(error);
+        return;
+      }
     }
 
     setShowForm(false);
     setEditingQuestion(null);
     resetForm();
-    fetchData();
+    await fetchData();
+    alert('✅ Pregunta guardada correctamente');
   };
 
   const deleteQuestion = async (id) => {
