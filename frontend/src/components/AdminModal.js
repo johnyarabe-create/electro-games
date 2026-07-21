@@ -424,7 +424,16 @@ const QuestionsTab = ({
           </div>
           <div>
             <label>Departamento:</label>
-            <select value={formData.department_id} onChange={(e) => onFormChange({...formData, department_id: e.target.value})} style={{ width: '100%', padding: '0.5rem' }}>
+            <select 
+              value={formData.department_id} 
+              onChange={(e) => {
+                const value = e.target.value;
+                // Convertir a número si no está vacío
+                const numValue = value ? Number(value) : '';
+                onFormChange({...formData, department_id: numValue});
+              }} 
+              style={{ width: '100%', padding: '0.5rem' }}
+            >
               <option value="">Seleccionar...</option>
               {departamentos.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
