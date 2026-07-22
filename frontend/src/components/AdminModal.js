@@ -26,7 +26,9 @@ const AdminModal = ({ isOpen, onClose }) => {
     departamento: '',
     rol: 'asesor',
     difficulty: 1,
-    xp_reward: 10
+    xp_reward: 10,
+    question_type: 'multiple_choice',
+    expected_answer: ''
   });
 
   // Estados para CRUD categorías
@@ -84,12 +86,10 @@ const AdminModal = ({ isOpen, onClose }) => {
     setStats({ users: userStats, totalSessions: sessions.length });
   };
 
-  // FILTRO CORREGIDO - Compara como número
+  // FILTRO CORREGIDO
   const preguntasFiltradas = questions.filter(q => {
     const qCategoryId = q.category_id ? String(q.category_id) : '';
     const filterCategory = String(filtroCategoria);
-    
-    // Departamento: comparar como número
     const qDeptoId = q.department_id ? Number(q.department_id) : null;
     const filterDepto = filtroDepartamento === 'todos' ? 'todos' : Number(filtroDepartamento);
     
@@ -100,62 +100,24 @@ const AdminModal = ({ isOpen, onClose }) => {
     return matchCategoria && matchDepto && matchRol;
   });
 
-  // CRUD Preguntas - CORREGIDA CON DEBUG
+  // CRUD Preguntas
   const saveQuestion = async () => {
     const questionData = {
       ...formData,
-      options: JSON.stringify(formData.options),
+      options: formData.question_type === 'open_text' ? '[]' : JSON.stringify(formData.options),
       is_active: true
     };
-    
-    // DEBUG: Ver qué se está enviando
-    console.log('🔵 Guardando pregunta:', questionData);
-    console.log('📝 Category ID:', questionData.category_id, 'Tipo:', typeof questionData.category_id);
-    console.log('🏢 Department ID:', questionData.department_id, 'Tipo:', typeof questionData.department_id);
-    console.log('✏️ Modo:', editingQuestion ? 'EDITAR' : 'CREAR');
 
     if (editingQuestion) {
-      console.log('🔄 Actualizando pregunta ID:', editingQuestion.id);
-      
-      const { data, error } = await supabase
-        .from('questions')
-        .update(questionData)
-        .eq('id', editingQuestion.id)
-        .select();
-      
-      console.log('✅ Respuesta Supabase:', { data, error });
-      
-      if (error) {
-        alert('❌ Error al actualizar: ' + error.message);
-        console.error('Error completo:', error);
-        return;
-      }
-      
-      if (data) {
-        console.log('✅ Actualización exitosa:', data);
-      }
+      await supabase.from('questions').update(questionData).eq('id', editingQuestion.id);
     } else {
-      console.log('➕ Creando nueva pregunta');
-      
-      const { data, error } = await supabase
-        .from('questions')
-        .insert([questionData])
-        .select();
-      
-      console.log('✅ Respuesta insert:', { data, error });
-      
-      if (error) {
-        alert('❌ Error al crear: ' + error.message);
-        console.error(error);
-        return;
-      }
+      await supabase.from('questions').insert([questionData]);
     }
 
     setShowForm(false);
     setEditingQuestion(null);
     resetForm();
-    await fetchData();
-    alert('✅ Pregunta guardada correctamente');
+    fetchData();
   };
 
   const deleteQuestion = async (id) => {
@@ -175,7 +137,9 @@ const AdminModal = ({ isOpen, onClose }) => {
       departamento: question.departamento || '',
       rol: question.rol || 'asesor',
       difficulty: question.difficulty || 1,
-      xp_reward: question.xp_reward || 10
+      xp_reward: question.xp_reward || 10,
+      question_type: question.question_type || 'multiple_choice',
+      expected_answer: question.expected_answer || ''
     });
     setShowForm(true);
   };
@@ -258,7 +222,9 @@ const AdminModal = ({ isOpen, onClose }) => {
       departamento: '',
       rol: 'asesor',
       difficulty: 1,
-      xp_reward: 10
+      xp_reward: 10,
+      question_type: 'multiple_choice',
+      expected_answer: ''
     });
   };
 
@@ -428,7 +394,6 @@ const QuestionsTab = ({
               value={formData.department_id} 
               onChange={(e) => {
                 const value = e.target.value;
-                // Convertir a número si no está vacío
                 const numValue = value ? Number(value) : '';
                 onFormChange({...formData, department_id: numValue});
               }} 
@@ -447,16 +412,46 @@ const QuestionsTab = ({
           </div>
         </div>
 
+        {/* TIPO DE PREGUNTA - NUEVO */}
         <div style={{ marginBottom: '1rem' }}>
-          <label>Opciones (marca la correcta):</label>
-          {formData.options.map((opt, idx) => (
-            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-              <input type="radio" name="correct" checked={formData.correct_answer === idx} onChange={() => onFormChange({...formData, correct_answer: idx})} />
-              <input type="text" value={opt} onChange={(e) => onOptionChange(idx, e.target.value)} placeholder={`Opción ${String.fromCharCode(65 + idx)}`} style={{ flex: 1, padding: '0.5rem' }} />
-              {formData.correct_answer === idx && <span style={{ color: '#10B981' }}>✓ Correcta</span>}
-            </div>
-          ))}
+          <label>Tipo de pregunta:</label>
+          <select 
+            value={formData.question_type || 'multiple_choice'} 
+            onChange={(e) => onFormChange({...formData, question_type: e.target.value})}
+            style={{ width: '100%', padding: '0.5rem' }}
+          >
+            <option value="multiple_choice">📝 Opción múltiple</option>
+            <option value="open_text">✏️ Respuesta abierta (análisis)</option>
+          </select>
         </div>
+
+        {/* RESPUESTA ESPERADA - NUEVO */}
+        {(formData.question_type || 'multiple_choice') === 'open_text' && (
+          <div style={{ marginBottom: '1rem' }}>
+            <label>Palabras clave esperadas (separadas por coma):</label>
+            <textarea 
+              value={formData.expected_answer || ''}
+              onChange={(e) => onFormChange({...formData, expected_answer: e.target.value})}
+              placeholder="Ej: precio, garantía, calidad, durabilidad"
+              style={{ width: '100%', padding: '0.5rem', minHeight: '60px' }}
+            />
+            <small style={{ color: '#6b7280' }}>El sistema evaluará si la respuesta contiene estas palabras</small>
+          </div>
+        )}
+
+        {/* OPCIONES - Solo si es multiple_choice */}
+        {(formData.question_type || 'multiple_choice') === 'multiple_choice' && (
+          <div style={{ marginBottom: '1rem' }}>
+            <label>Opciones (marca la correcta):</label>
+            {formData.options.map((opt, idx) => (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <input type="radio" name="correct" checked={formData.correct_answer === idx} onChange={() => onFormChange({...formData, correct_answer: idx})} />
+                <input type="text" value={opt} onChange={(e) => onOptionChange(idx, e.target.value)} placeholder={`Opción ${String.fromCharCode(65 + idx)}`} style={{ flex: 1, padding: '0.5rem' }} />
+                {formData.correct_answer === idx && <span style={{ color: '#10B981' }}>✓ Correcta</span>}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: '1rem' }}>
           <button onClick={onSave} style={saveButtonStyle}>💾 Guardar</button>
@@ -477,6 +472,7 @@ const QuestionsTab = ({
             <thead>
               <tr style={{ background: '#f3f4f6' }}>
                 <th style={thStyle}>Pregunta</th>
+                <th style={thStyle}>Tipo</th>
                 <th style={thStyle}>Categoría</th>
                 <th style={thStyle}>Depto</th>
                 <th style={thStyle}>Rol</th>
@@ -488,13 +484,18 @@ const QuestionsTab = ({
                 <tr key={q.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
                   <td style={tdStyle}>{q.question_text?.substring(0, 60)}...</td>
                   <td style={tdStyle}>
+                    {q.question_type === 'open_text' ? (
+                      <span style={{ background: '#F59E0B', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.75rem' }}>✏️ Abierta</span>
+                    ) : (
+                      <span style={{ background: '#3B82F6', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.75rem' }}>📝 Opción</span>
+                    )}
+                  </td>
+                  <td style={tdStyle}>
                     <span style={{ background: q.categories?.color || '#ccc', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.75rem' }}>
                       {q.categories?.name || 'Sin categoría'}
                     </span>
                   </td>
-                  <td style={tdStyle}>
-  {departamentos.find(d => Number(d.id) === Number(q.department_id))?.name || q.departamento || '-'}
-</td>
+                  <td style={tdStyle}>{departamentos.find(d => Number(d.id) === Number(q.department_id))?.name || q.departamento || '-'}</td>
                   <td style={tdStyle}>{q.rol === 'gerente' ? '👔' : '🎧'} {q.rol}</td>
                   <td style={tdStyle}>
                     <button onClick={() => onEdit(q)} style={actionButtonStyle('#3B82F6')}>✏️</button>
