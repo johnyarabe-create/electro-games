@@ -2,43 +2,11 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 
 const AdminModal = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('analytics'); // Por defecto abre en Análisis IA
   const [questions, setQuestions] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [stats, setStats] = useState(null);
+  const [departamentos, setDepartamentos] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // Filtros
-  const [filtroCategoria, setFiltroCategoria] = useState('todas');
-  const [filtroDepartamento, setFiltroDepartamento] = useState('todos');
-  const [filtroRol, setFiltroRol] = useState('todos');
-  
-  // Estados para CRUD
-  const [editingQuestion, setEditingQuestion] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({
-    question_text: '',
-    options: ['', '', '', ''],
-    correct_answer: 0,
-    category_id: '',
-    departamento: 'ventas',
-    rol: 'asesor',
-    difficulty: 1,
-    xp_reward: 10
-  });
-
-  const departamentos = [
-    { id: 'ventas', name: 'Ventas', color: '#3B82F6' },
-    { id: 'garantia', name: 'Garantía', color: '#F59E0B' },
-    { id: 'atencion', name: 'Atención al Cliente', color: '#10B981' },
-    { id: 'seguridad', name: 'Seguridad', color: '#EF4444' }
-  ];
-
-  const roles = [
-    { id: 'asesor', name: '👨‍💼 Asesor de Ventas' },
-    { id: 'gerente', name: '👔 Gerente de Tienda' },
-    { id: 'supervisor', name: '👨‍💻 Supervisor' }
-  ];
 
   useEffect(() => {
     if (isOpen) {
@@ -49,181 +17,16 @@ const AdminModal = ({ isOpen, onClose }) => {
   const fetchData = async () => {
     setLoading(true);
     
-    // Cargar categorías y preguntas en paralelo
-    const [{ data: catData }, { data: questionsData }] = await Promise.all([
+    const [{ data: catData }, { data: questionsData }, { data: deptData }] = await Promise.all([
       supabase.from('categories').select('*'),
-      supabase.from('questions').select('*, categories(name)').order('id')
+      supabase.from('questions').select('*, categories(name)').order('id'),
+      supabase.from('departments').select('*')
     ]);
     
     setCategories(catData || []);
     setQuestions(questionsData || []);
-    
-    // Cargar estadísticas
-    const { data: sessionsData } = await supabase
-      .from('game_sessions')
-      .select('*, profiles(first_name, last_name)');
-    
-    calculateStats(sessionsData || []);
+    setDepartamentos(deptData || []);
     setLoading(false);
-  };
-
-  const calculateStats = (sessions) => {
-    const userStats = {};
-    const deptStats = {};
-    
-    sessions.forEach(session => {
-      // Estadísticas por usuario
-      if (!userStats[session.user_id]) {
-        userStats[session.user_id] = {
-          name: session.profiles?.first_name + ' ' + session.profiles?.last_name || 'Anónimo',
-          totalGames: 0,
-          correctAnswers: 0,
-          totalAnswers: 0,
-          totalXP: 0
-        };
-      }
-      
-      userStats[session.user_id].totalGames++;
-      userStats[session.user_id].correctAnswers += session.correct_answers || 0;
-      userStats[session.user_id].totalAnswers += session.total_questions || 0;
-      userStats[session.user_id].totalXP += session.xp_earned || 0;
-    });
-
-    setStats({
-      users: userStats,
-      totalGames: sessions.length,
-      totalQuestions: questions.length
-    });
-  };
-
-  // Filtrar preguntas
-  const preguntasFiltradas = questions.filter(q => {
-    const matchCat = filtroCategoria === 'todas' || q.category_id === filtroCategoria;
-    const matchDept = filtroDepartamento === 'todos' || q.departamento === filtroDepartamento;
-    const matchRol = filtroRol === 'todos' || q.rol === filtroRol;
-    return matchCat && matchDept && matchRol;
-  });
-
-  // CRUD Operations
-  const newQuestion = () => {
-    setEditingQuestion(null);
-    setFormData({
-      question_text: '',
-      options: ['', '', '', ''],
-      correct_answer: 0,
-      category_id: categories[0]?.id || '',
-      departamento: 'ventas',
-      rol: 'asesor',
-      difficulty: 1,
-      xp_reward: 10
-    });
-    setShowForm(true);
-  };
-
-  const editQuestion = (question) => {
-    setEditingQuestion(question);
-    setFormData({
-      question_text: question.question_text,
-      options: [...question.options],
-      correct_answer: question.correct_answer,
-      category_id: question.category_id,
-      departamento: question.departamento || 'ventas',
-      rol: question.rol || 'asesor',
-      difficulty: question.difficulty,
-      xp_reward: question.xp_reward
-    });
-    setShowForm(true);
-  };
-
-  const saveQuestion = async (e) => {
-    e.preventDefault();
-    
-    if (editingQuestion) {
-      // Actualizar
-      const { error } = await supabase
-        .from('questions')
-        .update(formData)
-        .eq('id', editingQuestion.id);
-      
-      if (!error) {
-        setShowForm(false);
-        setEditingQuestion(null);
-        fetchData();
-      } else {
-        alert('Error al actualizar: ' + error.message);
-      }
-    } else {
-      // Crear nueva
-      const { error } = await supabase
-        .from('questions')
-        .insert([formData]);
-      
-      if (!error) {
-        setShowForm(false);
-        fetchData();
-      } else {
-        alert('Error al crear: ' + error.message);
-      }
-    }
-  };
-
-  const deleteQuestion = async (id) => {
-    if (!window.confirm('¿Estás seguro de eliminar esta pregunta?')) return;
-    
-    const { error } = await supabase
-      .from('questions')
-      .delete()
-      .eq('id', id);
-    
-    if (!error) {
-      fetchData();
-    } else {
-      alert('Error al eliminar: ' + error.message);
-    }
-  };
-
-  const updateOption = (idx, value) => {
-    const newOptions = [...formData.options];
-    newOptions[idx] = value;
-    setFormData({...formData, options: newOptions});
-  };
-
-  const resetForm = () => {
-    setFormData({
-      question_text: '',
-      options: ['', '', '', ''],
-      correct_answer: 0,
-      category_id: '',
-      departamento: 'ventas',
-      rol: 'asesor',
-      difficulty: 1,
-      xp_reward: 10
-    });
-  };
-
-  // Análisis de usuario
-  const analyzeUser = (userId) => {
-    const user = stats?.users?.[userId];
-    if (!user) return null;
-    
-    const accuracy = user.totalAnswers > 0 
-      ? Math.round((user.correctAnswers / user.totalAnswers) * 100) 
-      : 0;
-    
-    let level = 'Novato';
-    if (accuracy >= 80) level = 'Experto';
-    else if (accuracy >= 60) level = 'Intermedio';
-    
-    const recommendations = [];
-    if (accuracy < 60) {
-      recommendations.push('Repasar conceptos básicos de producto');
-      recommendations.push('Practicar técnicas de venta');
-    }
-    if (user.totalGames < 5) {
-      recommendations.push('Jugar más partidas para ganar experiencia');
-    }
-    
-    return { score: accuracy, level, recommendations };
   };
 
   if (!isOpen) return null;
@@ -235,9 +38,15 @@ const AdminModal = ({ isOpen, onClose }) => {
         <div style={sidebarStyle}>
           <h2 style={{ color: 'white', marginBottom: '2rem' }}>⚙️ Admin</h2>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')}>📊 Dashboard</TabButton>
-            <TabButton active={activeTab === 'questions'} onClick={() => setActiveTab('questions')}>❓ Preguntas ({preguntasFiltradas.length})</TabButton>
-            <TabButton active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')}>🧠 Análisis IA</TabButton>
+            <TabButton active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')}>
+              🧠 Análisis IA
+            </TabButton>
+            <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')}>
+              📊 Dashboard
+            </TabButton>
+            <TabButton active={activeTab === 'questions'} onClick={() => setActiveTab('questions')}>
+              ❓ Preguntas
+            </TabButton>
           </nav>
           <button onClick={onClose} style={closeButtonStyle}>✕ Cerrar</button>
         </div>
@@ -248,32 +57,25 @@ const AdminModal = ({ isOpen, onClose }) => {
             <div>Cargando...</div>
           ) : (
             <>
-              {activeTab === 'dashboard' && <DashboardTab stats={stats} />}
-              {activeTab === 'questions' && (
-                <QuestionsTab 
-                  questions={preguntasFiltradas}
-                  categories={categories}
-                  departamentos={departamentos}
-                  roles={roles}
-                  filtroCategoria={filtroCategoria}
-                  filtroDepartamento={filtroDepartamento}
-                  filtroRol={filtroRol}
-                  onFiltroCategoria={setFiltroCategoria}
-                  onFiltroDepartamento={setFiltroDepartamento}
-                  onFiltroRol={setFiltroRol}
-                  showForm={showForm}
-                  formData={formData}
-                  editingQuestion={editingQuestion}
-                  onNew={newQuestion}
-                  onEdit={editQuestion}
-                  onDelete={deleteQuestion}
-                  onSave={saveQuestion}
-                  onCancel={() => { setShowForm(false); resetForm(); }}
-                  onFormChange={setFormData}
-                  onOptionChange={updateOption}
+              {activeTab === 'analytics' && (
+                <AnalyticsTab 
+                  questions={questions} 
+                  categories={categories} 
+                  departamentos={departamentos} 
                 />
               )}
-              {activeTab === 'analytics' && <AnalyticsTab stats={stats} analyzeUser={analyzeUser} />}
+              {activeTab === 'dashboard' && (
+                <div>
+                  <h2>📊 Dashboard</h2>
+                  <p>En construcción...</p>
+                </div>
+              )}
+              {activeTab === 'questions' && (
+                <div>
+                  <h2>❓ Preguntas</h2>
+                  <p>Total: {questions.length} preguntas</p>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -282,345 +84,342 @@ const AdminModal = ({ isOpen, onClose }) => {
   );
 };
 
-// Sub-componentes
-const TabButton = ({ active, onClick, children }) => (
-  <button onClick={onClick} style={tabButtonStyle(active)}>{children}</button>
-);
-
-const DashboardTab = ({ stats }) => (
-  <div>
-    <h2 style={{ marginBottom: '1.5rem' }}>📊 Dashboard</h2>
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
-      <StatCard title="Total Sesiones" value={stats?.totalGames || 0} color="#3B82F6" />
-      <StatCard title="Usuarios Activos" value={Object.keys(stats?.users || {}).length} color="#10B981" />
-      <StatCard title="Preguntas" value={stats?.totalQuestions || 0} color="#F59E0B" />
-    </div>
-  </div>
-);
-
-const QuestionsTab = ({ 
-  questions, categories, departamentos, roles,
-  filtroCategoria, filtroDepartamento, filtroRol,
-  onFiltroCategoria, onFiltroDepartamento, onFiltroRol,
-  showForm, formData, editingQuestion, onNew, onEdit, onDelete, onSave, onCancel,
-  onFormChange, onOptionChange
-}) => (
-  <div>
-    <h2 style={{ marginBottom: '1rem' }}>❓ Gestión de Preguntas</h2>
-    
-    {/* Filtros */}
-    {!showForm && (
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <select value={filtroCategoria} onChange={(e) => onFiltroCategoria(e.target.value)} style={selectStyle}>
-          <option value="todas">📁 Todas las categorías</option>
-          {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
-        </select>
-        
-        <select value={filtroDepartamento} onChange={(e) => onFiltroDepartamento(e.target.value)} style={selectStyle}>
-          <option value="todos">🏢 Todos los departamentos</option>
-          {departamentos.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
-        
-        <select value={filtroRol} onChange={(e) => onFiltroRol(e.target.value)} style={selectStyle}>
-          <option value="todos">👤 Todos los roles</option>
-          {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
-        
-        <button onClick={onNew} style={newButtonStyle}>+ Nueva Pregunta</button>
-      </div>
-    )}
-
-    {showForm ? (
-      <form onSubmit={onSave} style={formContainerStyle}>
-        <h3>{editingQuestion ? '✏️ Editar Pregunta' : '➕ Nueva Pregunta'}</h3>
-        
-        <div style={formGroupStyle}>
-          <label>Pregunta:</label>
-          <textarea 
-            value={formData.question_text}
-            onChange={(e) => onFormChange({...formData, question_text: e.target.value})}
-            style={{ width: '100%', padding: '0.5rem', minHeight: '80px' }}
-            required
-          />
-        </div>
-
-        <div style={formGroupStyle}>
-          <label>Opciones (marca la correcta):</label>
-          {formData.options.map((opt, idx) => (
-            <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
-              <input
-                type="radio"
-                name="correct_answer"
-                checked={formData.correct_answer === idx}
-                onChange={() => onFormChange({...formData, correct_answer: idx})}
-              />
-              <input
-                type="text"
-                value={opt}
-                onChange={(e) => onOptionChange(idx, e.target.value)}
-                style={{ flex: 1, padding: '0.5rem' }}
-                placeholder={`Opción ${String.fromCharCode(65 + idx)}`}
-                required
-              />
-            </div>
-          ))}
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-          <div>
-            <label>Categoría:</label>
-            <select
-              value={formData.category_id}
-              onChange={(e) => onFormChange({...formData, category_id: e.target.value})}
-              style={{ width: '100%', padding: '0.5rem' }}
-              required
-            >
-              {categories.map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label>Departamento:</label>
-            <select
-              value={formData.departamento}
-              onChange={(e) => onFormChange({...formData, departamento: e.target.value})}
-              style={{ width: '100%', padding: '0.5rem' }}
-            >
-              {departamentos.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-          <div>
-            <label>Rol:</label>
-            <select
-              value={formData.rol}
-              onChange={(e) => onFormChange({...formData, rol: e.target.value})}
-              style={{ width: '100%', padding: '0.5rem' }}
-            >
-              {roles.map(r => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label>Dificultad:</label>
-            <select
-              value={formData.difficulty}
-              onChange={(e) => onFormChange({...formData, difficulty: parseInt(e.target.value)})}
-              style={{ width: '100%', padding: '0.5rem' }}
-            >
-              <option value={1}>⭐ Fácil</option>
-              <option value={2}>⭐⭐ Medio</option>
-              <option value={3}>⭐⭐⭐ Difícil</option>
-            </select>
-          </div>
-          
-          <div>
-            <label>XP Recompensa:</label>
-            <input
-              type="number"
-              value={formData.xp_reward}
-              onChange={(e) => onFormChange({...formData, xp_reward: parseInt(e.target.value)})}
-              style={{ width: '100%', padding: '0.5rem' }}
-              min="5"
-              max="100"
-            />
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button type="submit" style={saveButtonStyle}>
-            {editingQuestion ? '💾 Actualizar' : '💾 Guardar'}
-          </button>
-          <button type="button" onClick={onCancel} style={cancelButtonStyle}>
-            ❌ Cancelar
-          </button>
-        </div>
-      </form>
-    ) : (
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ background: '#f3f4f6' }}>
-            <th style={thStyle}>Pregunta</th>
-            <th style={thStyle}>Categoría</th>
-            <th style={thStyle}>Depto</th>
-            <th style={thStyle}>Rol</th>
-            <th style={thStyle}>Dif.</th>
-            <th style={thStyle}>XP</th>
-            <th style={thStyle}>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {questions.map(q => (
-            <tr key={q.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-              <td style={tdStyle}>{q.question_text.substring(0, 50)}...</td>
-              <td style={tdStyle}>{q.categories?.name}</td>
-              <td style={tdStyle}>
-                <span style={deptBadgeStyle(q.departamento)}>{q.departamento}</span>
-              </td>
-              <td style={tdStyle}>{q.rol === 'gerente' ? '👔' : q.rol === 'supervisor' ? '👨‍💻' : '🎧'} {q.rol}</td>
-              <td style={tdStyle}>{'⭐'.repeat(q.difficulty)}</td>
-              <td style={tdStyle}>{q.xp_reward}</td>
-              <td style={tdStyle}>
-                <button onClick={() => onEdit(q)} style={actionButtonStyle('#3B82F6')}>✏️</button>
-                <button onClick={() => onDelete(q.id)} style={actionButtonStyle('#EF4444')}>🗑️</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    )}
-  </div>
-);
-
-// ✅ ANALYTICS TAB CON LOADEMPLOYEES CORREGIDO
-const AnalyticsTab = ({ stats, analyzeUser }) => {
+// ✅ ANALYTICS TAB CON ANÁLISIS DE RESPUESTAS ABIERTAS
+const AnalyticsTab = ({ questions, categories, departamentos }) => {
+  const [analysisData, setAnalysisData] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [showEmployees, setShowEmployees] = useState(false);
   const [employees, setEmployees] = useState([]);
-  const [loadingEmployees, setLoadingEmployees] = useState(false);
-  const [employeeError, setEmployeeError] = useState(null);
 
-  // Cargar empleados - CORREGIDO: sin 'department'
+  useEffect(() => {
+    fetchAnalysisData();
+  }, []);
+
+  const fetchAnalysisData = async () => {
+    const { data: sessionsData } = await supabase
+      .from('game_sessions')
+      .select('*, profiles(first_name, last_name, email, level, total_xp)')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    const analysis = processAnalysisData(sessionsData || [], questions);
+    setAnalysisData(analysis);
+    setLoading(false);
+  };
+
+  // Cargar empleados - CORREGIDO sin 'department'
   const loadEmployees = async () => {
     console.log('🔵 Cargando empleados...');
-    setLoadingEmployees(true);
-    setEmployeeError(null);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, email, level, total_xp')
+      .order('first_name');
     
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, first_name, last_name, email, level, total_xp')
-        .order('first_name');
+    if (error) {
+      console.error('❌ Error:', error);
+      return;
+    }
+    
+    console.log('✅ Datos recibidos:', data);
+    setEmployees(data || []);
+    setShowEmployees(true);
+  };
+
+  const processAnalysisData = (sessions, allQuestions) => {
+    const stats = {
+      totalGames: sessions.length,
+      openTextStats: {
+        total: 0,
+        correct: 0,
+        incorrect: 0,
+        byCategory: {},
+        byDepartment: {},
+        weakAreas: []
+      },
+      multipleChoiceStats: {
+        total: 0,
+        correct: 0,
+        byCategory: {}
+      },
+      userStats: {},
+      recommendations: []
+    };
+
+    sessions.forEach(session => {
+      const answers = session.answers || [];
+      const userName = session.profiles?.first_name + ' ' + session.profiles?.last_name || 'Anónimo';
       
-      if (error) {
-        console.error('❌ Error:', error);
-        setEmployeeError(error.message);
-        setLoadingEmployees(false);
-        return;
+      // Stats por usuario
+      if (!stats.userStats[session.user_id]) {
+        stats.userStats[session.user_id] = {
+          name: userName,
+          totalGames: 0,
+          openTextCorrect: 0,
+          openTextTotal: 0,
+          multipleCorrect: 0,
+          multipleTotal: 0,
+          weakCategories: []
+        };
       }
       
-      console.log('✅ Datos recibidos:', data);
-      setEmployees(data || []);
-      setShowEmployees(true);
-    } catch (err) {
-      console.error('❌ Error inesperado:', err);
-      setEmployeeError(err.message);
-    } finally {
-      setLoadingEmployees(false);
-    }
+      stats.userStats[session.user_id].totalGames++;
+
+      answers.forEach(answer => {
+        const question = allQuestions.find(q => q.id === answer.question_id);
+        if (!question) return;
+
+        const catName = question.categories?.name || 'Sin categoría';
+        const deptName = question.department_id ? 
+          (departamentos.find(d => d.id === question.department_id)?.name || 'Sin departamento') 
+          : 'Sin departamento';
+
+        if (answer.question_type === 'open_text') {
+          // Respuesta abierta
+          stats.openTextStats.total++;
+          
+          if (answer.is_correct) {
+            stats.openTextStats.correct++;
+            stats.userStats[session.user_id].openTextCorrect++;
+          } else {
+            stats.openTextStats.incorrect++;
+            
+            // Áreas débiles
+            if (!stats.userStats[session.user_id].weakCategories.includes(catName)) {
+              stats.userStats[session.user_id].weakCategories.push(catName);
+            }
+            
+            // Registrar por categoría
+            if (!stats.openTextStats.byCategory[catName]) {
+              stats.openTextStats.byCategory[catName] = { total: 0, incorrect: 0 };
+            }
+            stats.openTextStats.byCategory[catName].total++;
+            stats.openTextStats.byCategory[catName].incorrect++;
+          }
+          
+          stats.userStats[session.user_id].openTextTotal++;
+
+          // Por departamento
+          if (!stats.openTextStats.byDepartment[deptName]) {
+            stats.openTextStats.byDepartment[deptName] = { total: 0, incorrect: 0 };
+          }
+          stats.openTextStats.byDepartment[deptName].total++;
+          if (!answer.is_correct) {
+            stats.openTextStats.byDepartment[deptName].incorrect++;
+          }
+
+        } else {
+          // Opción múltiple
+          stats.multipleChoiceStats.total++;
+          if (answer.is_correct) {
+            stats.multipleChoiceStats.correct++;
+            stats.userStats[session.user_id].multipleCorrect++;
+          }
+          stats.userStats[session.user_id].multipleTotal++;
+
+          if (!stats.multipleChoiceStats.byCategory[catName]) {
+            stats.multipleChoiceStats.byCategory[catName] = { total: 0, correct: 0 };
+          }
+          stats.multipleChoiceStats.byCategory[catName].total++;
+          if (answer.is_correct) stats.multipleChoiceStats.byCategory[catName].correct++;
+        }
+      });
+    });
+
+    // Generar recomendaciones
+    Object.entries(stats.userStats).forEach(([userId, user]) => {
+      const openAccuracy = user.openTextTotal > 0 ? (user.openTextCorrect / user.openTextTotal) * 100 : 0;
+      const multiAccuracy = user.multipleTotal > 0 ? (user.multipleCorrect / user.multipleTotal) * 100 : 0;
+      
+      if (openAccuracy < 60 && user.weakCategories.length > 0) {
+        stats.recommendations.push({
+          user: user.name,
+          type: 'weak_areas',
+          message: `Necesita refuerzo en: ${user.weakCategories.join(', ')}`,
+          priority: 'high'
+        });
+      }
+      
+      if (multiAccuracy < 50) {
+        stats.recommendations.push({
+          user: user.name,
+          type: 'knowledge_gap',
+          message: 'Repasar conceptos básicos de producto',
+          priority: 'medium'
+        });
+      }
+    });
+
+    // Áreas débiles globales
+    Object.entries(stats.openTextStats.byCategory)
+      .filter(([_, data]) => data.incorrect > 0)
+      .sort((a, b) => (b[1].incorrect / b[1].total) - (a[1].incorrect / a[1].total))
+      .slice(0, 3)
+      .forEach(([catName, data]) => {
+        stats.openTextStats.weakAreas.push({
+          category: catName,
+          errorRate: Math.round((data.incorrect / data.total) * 100)
+        });
+      });
+
+    return stats;
   };
+
+  if (loading) return <div>Cargando análisis...</div>;
+  if (!analysisData) return <div>Sin datos</div>;
+
+  const { openTextStats, multipleChoiceStats, userStats, recommendations } = analysisData;
 
   return (
     <div>
-      <h2 style={{ marginBottom: '1rem' }}>🧠 Análisis de Desempeño</h2>
-      
-      {/* Botón para cargar empleados */}
+      <h2 style={{ marginBottom: '1.5rem' }}>🧠 Análisis de IA - Respuestas Abiertas</h2>
+
+      {/* Botón Ver Empleados */}
       <div style={{ marginBottom: '2rem' }}>
         <button 
           onClick={loadEmployees}
-          disabled={loadingEmployees}
           style={{
             padding: '1rem 2rem',
-            background: loadingEmployees ? '#9ca3af' : '#3B82F6',
+            background: '#3B82F6',
             color: 'white',
             border: 'none',
             borderRadius: '0.5rem',
-            cursor: loadingEmployees ? 'not-allowed' : 'pointer',
+            cursor: 'pointer',
             fontSize: '1rem'
           }}
         >
-          {loadingEmployees ? '⏳ Cargando...' : '👥 Ver Empleados'}
+          👥 Ver Empleados
         </button>
       </div>
 
-      {/* Error message */}
-      {employeeError && (
-        <div style={{
-          background: '#fee2e2',
-          color: '#dc2626',
-          padding: '1rem',
-          borderRadius: '0.5rem',
-          marginBottom: '1rem'
-        }}>
-          ⚠️ Error: {employeeError}
-        </div>
-      )}
-
-      {/* Lista de empleados */}
-      {showEmployees && !loadingEmployees && (
-        <div style={{ marginBottom: '2rem' }}>
-          <h3 style={{ marginBottom: '1rem' }}>👥 Empleados Registrados ({employees.length})</h3>
-          {employees.length === 0 ? (
-            <p style={{ color: '#6b7280' }}>No hay empleados registrados</p>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ background: '#f3f4f6' }}>
-                  <th style={thStyle}>Nombre</th>
-                  <th style={thStyle}>Email</th>
-                  <th style={thStyle}>Nivel</th>
-                  <th style={thStyle}>XP Total</th>
+      {/* Lista de Empleados */}
+      {showEmployees && (
+        <div style={{ marginBottom: '2rem', background: '#f9fafb', padding: '1.5rem', borderRadius: '0.75rem' }}>
+          <h3 style={{ marginBottom: '1rem' }}>👥 Empleados ({employees.length})</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#e5e7eb' }}>
+                <th style={thStyle}>Nombre</th>
+                <th style={thStyle}>Email</th>
+                <th style={thStyle}>Nivel</th>
+                <th style={thStyle}>XP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {employees.map(emp => (
+                <tr key={emp.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                  <td style={tdStyle}>{emp.first_name} {emp.last_name}</td>
+                  <td style={tdStyle}>{emp.email}</td>
+                  <td style={tdStyle}>{emp.level || 1}</td>
+                  <td style={tdStyle}>{emp.total_xp || 0}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {employees.map(emp => (
-                  <tr key={emp.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                    <td style={tdStyle}>{emp.first_name} {emp.last_name}</td>
-                    <td style={tdStyle}>{emp.email}</td>
-                    <td style={tdStyle}>{emp.level || 1}</td>
-                    <td style={tdStyle}>{emp.total_xp || 0}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* Análisis por usuario */}
-      <h3 style={{ marginBottom: '1rem' }}>📊 Análisis Individual</h3>
-      {stats?.users && Object.entries(stats.users).map(([userId, user]) => {
-        const analysis = analyzeUser(userId);
-        if (!analysis) return null;
+      {/* Estadísticas Generales */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
+        <StatCard 
+          title="Respuestas Abiertas" 
+          value={`${openTextStats.correct}/${openTextStats.total}`} 
+          color="#3B82F6" 
+        />
+        <StatCard 
+          title="Precisión Texto" 
+          value={`${openTextStats.total > 0 ? Math.round((openTextStats.correct / openTextStats.total) * 100) : 0}%`} 
+          color="#10B981" 
+        />
+        <StatCard 
+          title="Áreas Débiles" 
+          value={openTextStats.weakAreas.length} 
+          color="#EF4444" 
+        />
+      </div>
+
+      {/* Análisis por Usuario */}
+      <h3 style={{ marginBottom: '1rem' }}>👤 Análisis por Empleado</h3>
+      {Object.entries(userStats).map(([userId, user]) => {
+        const openAccuracy = user.openTextTotal > 0 ? Math.round((user.openTextCorrect / user.openTextTotal) * 100) : 0;
+        const multiAccuracy = user.multipleTotal > 0 ? Math.round((user.multipleCorrect / user.multipleTotal) * 100) : 0;
         
         return (
-          <div key={userId} style={analysisCardStyle(analysis.score)}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>{user.name}</h3>
+          <div key={userId} style={{
+            background: '#f9fafb',
+            padding: '1.5rem',
+            borderRadius: '0.75rem',
+            marginBottom: '1rem',
+            borderLeft: `4px solid ${openAccuracy >= 70 ? '#10B981' : openAccuracy >= 40 ? '#F59E0B' : '#EF4444'}`
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <h4 style={{ margin: 0 }}>{user.name}</h4>
               <span style={{ 
-                fontSize: '1.5rem', 
-                fontWeight: 'bold', 
-                color: analysis.score >= 80 ? '#10B981' : analysis.score >= 60 ? '#F59E0B' : '#EF4444' 
+                fontSize: '1.25rem', 
+                fontWeight: 'bold',
+                color: openAccuracy >= 70 ? '#10B981' : openAccuracy >= 40 ? '#F59E0B' : '#EF4444'
               }}>
-                {analysis.score}%
+                {openAccuracy}%
               </span>
             </div>
             
-            <div style={{ display: 'flex', gap: '2rem', marginBottom: '1rem', fontSize: '0.875rem' }}>
-              <span>🎮 <strong>{user.totalGames}</strong> partidas</span>
-              <span>✅ <strong>{user.correctAnswers}</strong> correctas</span>
-              <span>⭐ <strong>{user.totalXP}</strong> XP</span>
-              <span>🏆 Nivel: <strong>{analysis.level}</strong></span>
+            <div style={{ display: 'flex', gap: '2rem', fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>
+              <span>📝 Texto: {user.openTextCorrect}/{user.openTextTotal}</span>
+              <span>🎯 Opción Múltiple: {user.multipleCorrect}/{user.multipleTotal}</span>
+              <span>🎮 Total: {user.totalGames} juegos</span>
             </div>
-            
-            {analysis.recommendations.length > 0 && (
-              <div style={{ background: 'white', padding: '1rem', borderRadius: '0.5rem' }}>
-                <strong>💡 Recomendaciones:</strong>
-                <ul style={{ margin: '0.5rem 0 0 1.25rem', fontSize: '0.875rem' }}>
-                  {analysis.recommendations.map((rec, idx) => <li key={idx}>{rec}</li>)}
-                </ul>
+
+            {user.weakCategories.length > 0 && (
+              <div style={{ 
+                background: '#fee2e2', 
+                padding: '0.75rem', 
+                borderRadius: '0.5rem',
+                fontSize: '0.875rem',
+                color: '#dc2626'
+              }}>
+                <strong>⚠️ Áreas a reforzar:</strong> {user.weakCategories.join(', ')}
               </div>
             )}
           </div>
         );
       })}
+
+      {/* Áreas Débiles Globales */}
+      {openTextStats.weakAreas.length > 0 && (
+        <div style={{ marginTop: '2rem' }}>
+          <h3 style={{ marginBottom: '1rem' }}>📉 Áreas Débiles Globales</h3>
+          {openTextStats.weakAreas.map((area, idx) => (
+            <div key={idx} style={{
+              background: '#fef3c7',
+              padding: '1rem',
+              borderRadius: '0.5rem',
+              marginBottom: '0.5rem',
+              display: 'flex',
+              justifyContent: 'space-between'
+            }}>
+              <span>{area.category}</span>
+              <span style={{ color: '#dc2626', fontWeight: 'bold' }}>{area.errorRate}% error</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Recomendaciones */}
+      {recommendations.length > 0 && (
+        <div style={{ marginTop: '2rem' }}>
+          <h3 style={{ marginBottom: '1rem' }}>💡 Recomendaciones</h3>
+          {recommendations.map((rec, idx) => (
+            <div key={idx} style={{
+              background: rec.priority === 'high' ? '#fee2e2' : '#dbeafe',
+              padding: '1rem',
+              borderRadius: '0.5rem',
+              marginBottom: '0.5rem',
+              borderLeft: `4px solid ${rec.priority === 'high' ? '#dc2626' : '#3B82F6'}`
+            }}>
+              <strong>{rec.user}:</strong> {rec.message}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -657,16 +456,19 @@ const sidebarStyle = {
   flexDirection: 'column'
 };
 
-const tabButtonStyle = (active) => ({
-  padding: '0.75rem 1rem',
-  textAlign: 'left',
-  background: active ? '#3B82F6' : 'transparent',
-  color: 'white',
-  border: 'none',
-  borderRadius: '0.5rem',
-  cursor: 'pointer',
-  transition: 'all 0.2s'
-});
+const TabButton = ({ active, onClick, children }) => (
+  <button onClick={onClick} style={{
+    padding: '0.75rem 1rem',
+    textAlign: 'left',
+    background: active ? '#3B82F6' : 'transparent',
+    color: 'white',
+    border: 'none',
+    borderRadius: '0.5rem',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    marginBottom: '0.5rem'
+  }}>{children}</button>
+);
 
 const closeButtonStyle = {
   marginTop: 'auto',
@@ -683,92 +485,15 @@ const StatCard = ({ title, value, color }) => (
     background: color + '10',
     padding: '1.5rem',
     borderRadius: '0.75rem',
-    borderLeft: `4px solid ${color}`
+    borderLeft: `4px solid ${color}`,
+    textAlign: 'center'
   }}>
     <h3 style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.5rem' }}>{title}</h3>
     <p style={{ fontSize: '2rem', fontWeight: 'bold', color: color }}>{value}</p>
   </div>
 );
 
-const selectStyle = {
-  padding: '0.5rem 1rem',
-  borderRadius: '0.5rem',
-  border: '1px solid #e5e7eb',
-  background: 'white',
-  cursor: 'pointer'
-};
-
-const newButtonStyle = {
-  padding: '0.75rem 1.5rem',
-  background: '#10B981',
-  color: 'white',
-  border: 'none',
-  borderRadius: '0.5rem',
-  cursor: 'pointer',
-  marginLeft: 'auto'
-};
-
-const formContainerStyle = {
-  background: '#f9fafb',
-  padding: '1.5rem',
-  borderRadius: '0.75rem',
-  marginBottom: '1rem'
-};
-
-const formGroupStyle = {
-  marginBottom: '1rem'
-};
-
-const thStyle = { padding: '1rem', textAlign: 'left', fontWeight: '600', background: '#f3f4f6' };
+const thStyle = { padding: '1rem', textAlign: 'left', fontWeight: '600', background: '#e5e7eb' };
 const tdStyle = { padding: '1rem' };
-
-const actionButtonStyle = (color) => ({
-  padding: '0.5rem',
-  marginRight: '0.5rem',
-  background: color,
-  color: 'white',
-  border: 'none',
-  borderRadius: '0.25rem',
-  cursor: 'pointer'
-});
-
-const saveButtonStyle = {
-  padding: '0.75rem 1.5rem',
-  background: '#10B981',
-  color: 'white',
-  border: 'none',
-  borderRadius: '0.5rem',
-  cursor: 'pointer'
-};
-
-const cancelButtonStyle = {
-  padding: '0.75rem 1.5rem',
-  background: '#6b7280',
-  color: 'white',
-  border: 'none',
-  borderRadius: '0.5rem',
-  cursor: 'pointer'
-};
-
-const deptBadgeStyle = (dept) => ({
-  background: {
-    ventas: '#3B82F6',
-    garantia: '#F59E0B',
-    atencion: '#10B981',
-    seguridad: '#EF4444'
-  }[dept] || '#6b7280',
-  color: 'white',
-  padding: '0.25rem 0.5rem',
-  borderRadius: '0.25rem',
-  fontSize: '0.75rem'
-});
-
-const analysisCardStyle = (score) => ({
-  background: '#f9fafb',
-  padding: '1.5rem',
-  borderRadius: '0.75rem',
-  marginBottom: '1rem',
-  borderLeft: '4px solid ' + (score >= 80 ? '#10B981' : score >= 60 ? '#F59E0B' : '#EF4444')
-});
 
 export default AdminModal;
