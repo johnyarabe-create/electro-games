@@ -9,6 +9,7 @@ const Game = () => {
   const [questions, setQuestions] = useState([]);
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState(null);
+  const [textAnswer, setTextAnswer] = useState('');
   const [answers, setAnswers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [finished, setFinished] = useState(false);
@@ -17,7 +18,6 @@ const Game = () => {
   const [noQuestions, setNoQuestions] = useState(false);
 
   useEffect(() => {
-    // Cargar configuración de localStorage
     const savedConfig = localStorage.getItem('gameConfig');
     if (savedConfig) {
       try {
@@ -38,18 +38,15 @@ const Game = () => {
     setNoQuestions(false);
     
     try {
-      // Construir query base
       let query = supabase
         .from('questions')
         .select('*, categories(name, color)')
         .eq('is_active', true);
       
-      // Aplicar filtro de categoría si no es 'all'
       if (gameConfig?.category && gameConfig.category !== 'all') {
         query = query.eq('category_id', gameConfig.category);
       }
       
-      // Aplicar filtro de departamento si no es 'all'
       if (gameConfig?.department && gameConfig.department !== 'all') {
         query = query.eq('department_id', gameConfig.department);
       }
@@ -61,7 +58,6 @@ const Game = () => {
         return;
       }
       
-      // Si no hay preguntas con los filtros aplicados
       if (!data || data.length === 0) {
         setNoQuestions(true);
         setQuestions([]);
@@ -69,7 +65,6 @@ const Game = () => {
         return;
       }
       
-      // Mezclar preguntas aleatoriamente y tomar máximo 10
       const shuffled = data.sort(() => 0.5 - Math.random()).slice(0, 10);
       setQuestions(shuffled);
       
@@ -80,19 +75,37 @@ const Game = () => {
     }
   };
 
-  const handleAnswer = async (index) => {
+  const handleAnswer = async (answer) => {
     if (selected !== null) return;
-    setSelected(index);
+    setSelected(answer);
     
     const currentQ = questions[current];
-    const isCorrect = index === currentQ.correct_answer;
+    let isCorrect = false;
+    
+    if (currentQ.question_type === 'open_text') {
+      // Evaluar respuesta abierta por palabras clave
+      const userAnswer = String(answer).toLowerCase().trim();
+      const keywords = (currentQ.expected_answer || '').toLowerCase().split(',').map(k => k.trim()).filter(k => k);
+      isCorrect = keywords.length > 0 && keywords.some(keyword => userAnswer.includes(keyword));
+      
+      console.log('Respuesta abierta evaluada:', {
+        userAnswer,
+        keywords,
+        isCorrect,
+        expected: currentQ.expected_answer
+      });
+    } else {
+      // Opción múltiple
+      isCorrect = answer === currentQ.correct_answer;
+    }
     
     setTimeout(async () => {
       const newAnswers = [...answers, {
         question_id: currentQ.id,
-        selected_answer: index,
+        selected_answer: answer,
         is_correct: isCorrect,
-        xp_earned: isCorrect ? currentQ.xp_reward : 0
+        xp_earned: isCorrect ? currentQ.xp_reward : 0,
+        question_type: currentQ.question_type || 'multiple_choice'
       }];
       
       setAnswers(newAnswers);
@@ -100,6 +113,7 @@ const Game = () => {
       if (current < questions.length - 1) {
         setCurrent(current + 1);
         setSelected(null);
+        setTextAnswer('');
       } else {
         await finishGame(newAnswers);
       }
@@ -117,7 +131,8 @@ const Game = () => {
       correct_answers: correctCount,
       total_questions: finalAnswers.length,
       xp_earned: totalXP,
-      completed: true
+      completed: true,
+      answers: finalAnswers
     }]);
     
     // Actualizar XP y nivel del usuario
@@ -143,61 +158,21 @@ const Game = () => {
     setFinished(true);
   };
 
-  // Pantalla de carga
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '3rem' }}>
         <p>Cargando preguntas...</p>
-        {config.category !== 'all' && (
-          <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-            Filtrando por categoría seleccionada...
-          </p>
-        )}
       </div>
     );
   }
 
-  // Pantalla de no hay preguntas
   if (noQuestions) {
     return (
       <div style={{ textAlign: 'center', padding: '3rem' }}>
         <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>😕</div>
         <h2 style={{ marginBottom: '1rem', color: '#EF4444' }}>No hay preguntas disponibles</h2>
-        <p style={{ color: '#6b7280', marginBottom: '2rem' }}>
-          No se encontraron preguntas para los filtros seleccionados:
-          <br />
-          <strong>Categoría:</strong> {config.category === 'all' ? 'Todas' : config.category}
-          <br />
-          <strong>Departamento:</strong> {config.department === 'all' ? 'Todos' : config.department}
-        </p>
-        <button 
-          onClick={() => navigate('/game-config')} 
-          style={{ 
-            padding: '1rem 2rem', 
-            background: '#3B82F6', 
-            color: 'white', 
-            border: 'none', 
-            borderRadius: '0.5rem', 
-            cursor: 'pointer',
-            fontSize: '1rem',
-            marginRight: '1rem'
-          }}
-        >
+        <button onClick={() => navigate('/game-config')} style={{ padding: '1rem 2rem', background: '#3B82F6', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' }}>
           Cambiar Filtros
-        </button>
-        <button 
-          onClick={() => fetchQuestions({ category: 'all', department: 'all' })} 
-          style={{ 
-            padding: '1rem 2rem', 
-            background: 'transparent', 
-            color: '#6b7280', 
-            border: '2px solid #e5e7eb', 
-            borderRadius: '0.5rem', 
-            cursor: 'pointer',
-            fontSize: '1rem'
-          }}
-        >
-          Ver Todas las Preguntas
         </button>
       </div>
     );
@@ -216,19 +191,7 @@ const Game = () => {
             +{results.xp_earned} XP
           </p>
         </div>
-        <button 
-          onClick={() => navigate('/')} 
-          style={{ 
-            marginTop: '2rem', 
-            padding: '1rem 2rem', 
-            background: '#3B82F6', 
-            color: 'white', 
-            border: 'none', 
-            borderRadius: '0.5rem', 
-            cursor: 'pointer',
-            fontSize: '1rem'
-          }}
-        >
+        <button onClick={() => navigate('/')} style={{ marginTop: '2rem', padding: '1rem 2rem', background: '#3B82F6', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' }}>
           Volver al Inicio
         </button>
       </div>
@@ -239,36 +202,15 @@ const Game = () => {
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-      {/* Mostrar filtros activos */}
+      {/* Indicadores */}
       {(config.category !== 'all' || config.department !== 'all') && (
-        <div style={{ 
-          background: '#DBEAFE', 
-          padding: '0.75rem 1rem', 
-          borderRadius: '0.5rem',
-          marginBottom: '1rem',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
+        <div style={{ background: '#DBEAFE', padding: '0.75rem 1rem', borderRadius: '0.5rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: '0.875rem', color: '#1E40AF' }}>
             <strong>Filtros:</strong>{' '}
             {config.category !== 'all' && `Categoría: ${config.category}`}
             {config.category !== 'all' && config.department !== 'all' && ' | '}
             {config.department !== 'all' && `Depto: ${config.department}`}
           </span>
-          <button 
-            onClick={() => navigate('/game-config')}
-            style={{
-              fontSize: '0.75rem',
-              color: '#1E40AF',
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              textDecoration: 'underline'
-            }}
-          >
-            Cambiar
-          </button>
         </div>
       )}
 
@@ -276,60 +218,110 @@ const Game = () => {
         <span style={{ fontSize: '1.125rem', color: '#6b7280' }}>
           Pregunta {current + 1} de {questions.length}
         </span>
-        <span style={{ 
-          background: q?.categories?.color || '#3B82F6', 
-          color: 'white', 
-          padding: '0.5rem 1rem', 
-          borderRadius: '9999px',
-          fontSize: '0.875rem',
-          fontWeight: '600'
-        }}>
-          {q?.categories?.name || 'General'}
-        </span>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <span style={{ background: q?.categories?.color || '#3B82F6', color: 'white', padding: '0.5rem 1rem', borderRadius: '9999px', fontSize: '0.875rem', fontWeight: '600' }}>
+            {q?.categories?.name || 'General'}
+          </span>
+          {q?.question_type === 'open_text' && (
+            <span style={{ background: '#F59E0B', color: 'white', padding: '0.5rem 1rem', borderRadius: '9999px', fontSize: '0.875rem', fontWeight: '600' }}>
+              ✏️ Respuesta abierta
+            </span>
+          )}
+        </div>
       </div>
       
-      <div style={{ 
-        background: 'white', 
-        padding: '2rem', 
-        borderRadius: '1rem', 
-        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
-        marginBottom: '2rem'
-      }}>
+      <div style={{ background: 'white', padding: '2rem', borderRadius: '1rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', marginBottom: '2rem' }}>
         <h2 style={{ marginBottom: '2rem', fontSize: '1.5rem', lineHeight: '1.5' }}>
           {q?.question_text}
         </h2>
         
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {q?.options?.map((opt, idx) => (
-            <button
-              key={idx}
-              onClick={() => handleAnswer(idx)}
+        {q?.question_type === 'open_text' ? (
+          // RESPUESTA ABIERTA
+          <div style={{ marginBottom: '2rem' }}>
+            <textarea
+              value={textAnswer}
+              onChange={(e) => setTextAnswer(e.target.value)}
+              placeholder="Escribe tu respuesta aquí..."
               disabled={selected !== null}
               style={{
-                padding: '1.25rem',
-                textAlign: 'left',
+                width: '100%',
+                padding: '1rem',
+                minHeight: '120px',
                 borderRadius: '0.75rem',
-                border: '2px solid',
-                borderColor: selected === null ? '#e5e7eb' : 
-                  selected === idx ? 
-                    (idx === q.correct_answer ? '#10B981' : '#EF4444') : 
-                    (idx === q.correct_answer ? '#10B981' : '#e5e7eb'),
-                background: selected === null ? 'white' : 
-                  selected === idx ? 
-                    (idx === q.correct_answer ? '#D1FAE5' : '#FEE2E2') : 
-                    (idx === q.correct_answer ? '#D1FAE5' : '#F9FAFB'),
-                cursor: selected === null ? 'pointer' : 'default',
-                fontSize: '1.125rem',
-                transition: 'all 0.2s'
+                border: '2px solid #e5e7eb',
+                fontSize: '1rem',
+                fontFamily: 'inherit',
+                resize: 'vertical'
+              }}
+            />
+            <button
+              onClick={() => handleAnswer(textAnswer)}
+              disabled={!textAnswer.trim() || selected !== null}
+              style={{
+                marginTop: '1rem',
+                padding: '0.75rem 2rem',
+                background: textAnswer.trim() ? '#3B82F6' : '#9CA3AF',
+                color: 'white',
+                border: 'none',
+                borderRadius: '0.5rem',
+                cursor: textAnswer.trim() ? 'pointer' : 'not-allowed',
+                fontSize: '1rem'
               }}
             >
-              <strong style={{ marginRight: '1rem', color: '#3B82F6' }}>
-                {String.fromCharCode(65 + idx)}.
-              </strong>
-              {opt}
+              Enviar Respuesta
             </button>
-          ))}
-        </div>
+            
+            {selected !== null && (
+              <div style={{ 
+                marginTop: '1rem', 
+                padding: '1rem', 
+                borderRadius: '0.5rem',
+                background: selected ? '#D1FAE5' : '#FEE2E2',
+                border: '2px solid',
+                borderColor: selected ? '#10B981' : '#EF4444'
+              }}>
+                <p><strong>Tu respuesta:</strong> {selected}</p>
+                <p><strong>Palabras clave esperadas:</strong> {q?.expected_answer}</p>
+                <p style={{ color: selected ? '#10B981' : '#EF4444', fontWeight: 'bold' }}>
+                  {selected ? '✅ Correcto' : '❌ Incorrecto'}
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          // OPCIÓN MÚLTIPLE
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {q?.options?.map((opt, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleAnswer(idx)}
+                disabled={selected !== null}
+                style={{
+                  padding: '1.25rem',
+                  textAlign: 'left',
+                  borderRadius: '0.75rem',
+                  border: '2px solid',
+                  borderColor: selected === null ? '#e5e7eb' : 
+                    selected === idx ? 
+                      (idx === q.correct_answer ? '#10B981' : '#EF4444') : 
+                      (idx === q.correct_answer ? '#10B981' : '#e5e7eb'),
+                  background: selected === null ? 'white' : 
+                    selected === idx ? 
+                      (idx === q.correct_answer ? '#D1FAE5' : '#FEE2E2') : 
+                      (idx === q.correct_answer ? '#D1FAE5' : '#F9FAFB'),
+                  cursor: selected === null ? 'pointer' : 'default',
+                  fontSize: '1.125rem',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <strong style={{ marginRight: '1rem', color: '#3B82F6' }}>
+                  {String.fromCharCode(65 + idx)}.
+                </strong>
+                {opt}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
