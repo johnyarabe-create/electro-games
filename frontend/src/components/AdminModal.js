@@ -603,21 +603,15 @@ const AnalyticsTab = ({ stats, questions, categories, departamentos }) => {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [employees, setEmployees] = useState([]);
 
-const loadEmployees = async () => {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, first_name, last_name, email, level, total_xp')  // ✅ Eliminado 'department'
-    .order('first_name');
-  
-  if (error) {
-    console.error('Error cargando empleados:', error);
-    return;
-  }
-  
-  setEmployees(data || []);
-  setShowEmployees(true);
-  setShowAnalysis(false);
-};
+  const loadEmployees = async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, email, department, level, total_xp')
+      .order('first_name');
+    setEmployees(data || []);
+    setShowEmployees(true);
+    setShowAnalysis(false);
+  };
 
   const runAnalysis = async () => {
     setLoading(true);
