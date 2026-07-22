@@ -595,37 +595,67 @@ const EstructuraTab = ({
   </div>
 );
 
-// ANALYTICS TAB CON 2 BOTONES - CORREGIDO
+// ANALYTICS TAB CON DEBUG Y MANEJO DE ERRORES
 const AnalyticsTab = ({ stats, questions, categories, departamentos }) => {
   const [analysisData, setAnalysisData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showEmployees, setShowEmployees] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [employees, setEmployees] = useState([]);
+  const [error, setError] = useState(null);
 
   const loadEmployees = async () => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, first_name, last_name, email, department, level, total_xp')
-      .order('first_name');
-    setEmployees(data || []);
-    setShowEmployees(true);
-    setShowAnalysis(false);
+    console.log('🔵 Cargando empleados...');
+    setError(null);
+    
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email, department, level, total_xp')
+        .order('first_name');
+      
+      console.log('📊 Respuesta:', { data, error });
+      
+      if (error) {
+        console.error('❌ Error:', error);
+        setError('Error al cargar empleados: ' + error.message);
+        return;
+      }
+      
+      setEmployees(data || []);
+      setShowEmployees(true);
+      setShowAnalysis(false);
+    } catch (err) {
+      console.error('💥 Error catch:', err);
+      setError('Error inesperado: ' + err.message);
+    }
   };
 
   const runAnalysis = async () => {
     setLoading(true);
     setShowAnalysis(true);
     setShowEmployees(false);
+    setError(null);
 
-    const { data: sessionsData } = await supabase
-      .from('game_sessions')
-      .select('*, profiles(first_name, last_name)')
-      .order('created_at', { ascending: false })
-      .limit(100);
+    try {
+      const { data: sessionsData, error: sessionsError } = await supabase
+        .from('game_sessions')
+        .select('*, profiles(first_name, last_name)')
+        .order('created_at', { ascending: false })
+        .limit(100);
 
-    const analysis = processAnalysisData(sessionsData || [], questions);
-    setAnalysisData(analysis);
+      if (sessionsError) {
+        setError('Error al cargar sesiones: ' + sessionsError.message);
+        setLoading(false);
+        return;
+      }
+
+      const analysis = processAnalysisData(sessionsData || [], questions);
+      setAnalysisData(analysis);
+    } catch (err) {
+      setError('Error en análisis: ' + err.message);
+    }
+    
     setLoading(false);
   };
 
@@ -693,31 +723,77 @@ const AnalyticsTab = ({ stats, questions, categories, departamentos }) => {
     <div>
       <h2 style={{ marginBottom: '1.5rem' }}>🧠 Análisis de IA</h2>
       
+      {/* BOTONES */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
-        <button onClick={loadEmployees} style={{ padding: '1rem 2rem', background: showEmployees ? '#3B82F6' : '#10B981', color: 'white', border: 'none', borderRadius: '0.75rem', fontSize: '1rem', fontWeight: '600', cursor: 'pointer' }}>
+        <button 
+          onClick={loadEmployees}
+          style={{
+            padding: '1rem 2rem',
+            background: showEmployees ? '#3B82F6' : '#10B981',
+            color: 'white',
+            border: 'none',
+            borderRadius: '0.75rem',
+            fontSize: '1rem',
+            fontWeight: '600',
+            cursor: 'pointer'
+          }}
+        >
           👥 Ver Empleados ({employees.length})
         </button>
-        <button onClick={runAnalysis} disabled={loading} style={{ padding: '1rem 2rem', background: loading ? '#9CA3AF' : (showAnalysis ? '#3B82F6' : '#8B5CF6'), color: 'white', border: 'none', borderRadius: '0.75rem', fontSize: '1rem', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer' }}>
+        
+        <button 
+          onClick={runAnalysis}
+          disabled={loading}
+          style={{
+            padding: '1rem 2rem',
+            background: loading ? '#9CA3AF' : (showAnalysis ? '#3B82F6' : '#8B5CF6'),
+            color: 'white',
+            border: 'none',
+            borderRadius: '0.75rem',
+            fontSize: '1rem',
+            fontWeight: '600',
+            cursor: loading ? 'not-allowed' : 'pointer'
+          }}
+        >
           {loading ? '⏳ Analizando...' : '🤖 Ejecutar Análisis IA'}
         </button>
       </div>
 
-      {showEmployees && (
-        <div style={{ marginBottom: '2rem' }}>
-          <h3>👥 Empleados Registrados ({employees.length})</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
-            {employees.map(emp => (
-              <div key={emp.id} style={{ background: '#f9fafb', padding: '1rem', borderRadius: '0.5rem', borderLeft: '4px solid #3B82F6' }}>
-                <h4>{emp.first_name} {emp.last_name}</h4>
-                <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>📧 {emp.email}</p>
-                <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>🏢 {emp.department || 'Sin departamento'}</p>
-                <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>⭐ Nivel: {emp.level || 1} | 🎯 XP: {emp.total_xp || 0}</p>
-              </div>
-            ))}
-          </div>
+      {/* ERROR */}
+      {error && (
+        <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem' }}>
+          <strong>❌ Error:</strong> {error}
         </div>
       )}
 
+      {/* EMPLEADOS */}
+      {showEmployees && (
+        <div style={{ marginBottom: '2rem' }}>
+          <h3>👥 Empleados Registrados ({employees.length})</h3>
+          {employees.length === 0 ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280', background: '#f9fafb', borderRadius: '0.5rem' }}>
+              <p>No se encontraron empleados registrados</p>
+              <p style={{ fontSize: '0.875rem' }}>Verifica que la tabla 'profiles' tenga datos y los permisos RLS estén configurados</p>
+              <button onClick={loadEmployees} style={{ marginTop: '1rem', padding: '0.5rem 1rem', background: '#3B82F6', color: 'white', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' }}>
+                🔄 Reintentar
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+              {employees.map(emp => (
+                <div key={emp.id} style={{ background: '#f9fafb', padding: '1rem', borderRadius: '0.5rem', borderLeft: '4px solid #3B82F6' }}>
+                  <h4>{emp.first_name} {emp.last_name}</h4>
+                  <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>📧 {emp.email}</p>
+                  <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>🏢 {emp.department || 'Sin departamento'}</p>
+                  <p style={{ fontSize: '0.875rem', color: '#6b7280' }}>⭐ Nivel: {emp.level || 1} | 🎯 XP: {emp.total_xp || 0}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ANÁLISIS */}
       {showAnalysis && (
         <>
           {loading ? (
@@ -741,25 +817,12 @@ const AnalyticsTab = ({ stats, questions, categories, departamentos }) => {
                   ))}
                 </div>
               )}
-
-              {analysisData.recommendations.length > 0 && (
-                <div>
-                  <h3 style={{ color: '#3B82F6' }}>💡 Recomendaciones</h3>
-                  {analysisData.recommendations.map((rec, idx) => (
-                    <div key={idx} style={{ background: rec.priority.includes('🔴') ? '#FEE2E2' : '#FEF3C7', padding: '1rem', borderRadius: '0.5rem', marginBottom: '0.75rem' }}>
-                      <strong>{rec.priority} {rec.area}</strong>
-                      <p>{rec.message}</p>
-                      <p style={{ color: '#059669' }}>✅ {rec.action}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
             </>
-          ) : <p>No hay datos suficientes</p>}
+          ) : <p>No hay datos</p>}
         </>
       )}
 
-      {!showEmployees && !showAnalysis && (
+      {!showEmployees && !showAnalysis && !error && (
         <div style={{ textAlign: 'center', padding: '3rem', color: '#6b7280' }}>
           <p>Selecciona una opción para comenzar</p>
         </div>
