@@ -8,6 +8,11 @@ const AdminModal = ({ isOpen, onClose }) => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   
+  // Filtros
+  const [filtroCategoria, setFiltroCategoria] = useState('todas');
+  const [filtroDepartamento, setFiltroDepartamento] = useState('todos');
+  const [filtroRol, setFiltroRol] = useState('todos');
+  
   // Estados para CRUD
   const [editingQuestion, setEditingQuestion] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -16,9 +21,24 @@ const AdminModal = ({ isOpen, onClose }) => {
     options: ['', '', '', ''],
     correct_answer: 0,
     category_id: '',
+    departamento: 'ventas',
+    rol: 'asesor',
     difficulty: 1,
     xp_reward: 10
   });
+
+  const departamentos = [
+    { id: 'ventas', name: 'Ventas', color: '#3B82F6' },
+    { id: 'garantia', name: 'Garantía', color: '#F59E0B' },
+    { id: 'atencion', name: 'Atención al Cliente', color: '#10B981' },
+    { id: 'seguridad', name: 'Seguridad', color: '#EF4444' }
+  ];
+
+  const roles = [
+    { id: 'asesor', name: '👨‍💼 Asesor de Ventas' },
+    { id: 'gerente', name: '👔 Gerente de Tienda' },
+    { id: 'supervisor', name: '👨‍💻 Supervisor' }
+  ];
 
   useEffect(() => {
     if (isOpen) {
@@ -29,29 +49,27 @@ const AdminModal = ({ isOpen, onClose }) => {
   const fetchData = async () => {
     setLoading(true);
     
-    // Cargar categorías
-    const { data: catData } = await supabase.from('categories').select('*');
-    setCategories(catData || []);
+    // Cargar categorías y preguntas en paralelo
+    const [{ data: catData }, { data: questionsData }] = await Promise.all([
+      supabase.from('categories').select('*'),
+      supabase.from('questions').select('*, categories(name)').order('id')
+    ]);
     
-    // Cargar preguntas
-    const { data: questionsData } = await supabase
-      .from('questions')
-      .select('*, categories(name)')
-      .order('id');
+    setCategories(catData || []);
+    setQuestions(questionsData || []);
     
     // Cargar estadísticas
     const { data: sessionsData } = await supabase
       .from('game_sessions')
       .select('*, profiles(first_name, last_name)');
     
-    setQuestions(questionsData || []);
     calculateStats(sessionsData || []);
     setLoading(false);
   };
 
   const calculateStats = (sessions) => {
-    const categoryStats = {};
     const userStats = {};
+    const deptStats = {};
     
     sessions.forEach(session => {
       // Estadísticas por usuario
@@ -73,46 +91,83 @@ const AdminModal = ({ isOpen, onClose }) => {
 
     setStats({
       users: userStats,
-      totalGames: sessions.length
+      totalGames: sessions.length,
+      totalQuestions: questions.length
     });
   };
 
+  // Filtrar preguntas
+  const preguntasFiltradas = questions.filter(q => {
+    const matchCat = filtroCategoria === 'todas' || q.category_id === filtroCategoria;
+    const matchDept = filtroDepartamento === 'todos' || q.departamento === filtroDepartamento;
+    const matchRol = filtroRol === 'todos' || q.rol === filtroRol;
+    return matchCat && matchDept && matchRol;
+  });
+
   // CRUD Operations
-  const handleCreate = async (e) => {
+  const newQuestion = () => {
+    setEditingQuestion(null);
+    setFormData({
+      question_text: '',
+      options: ['', '', '', ''],
+      correct_answer: 0,
+      category_id: categories[0]?.id || '',
+      departamento: 'ventas',
+      rol: 'asesor',
+      difficulty: 1,
+      xp_reward: 10
+    });
+    setShowForm(true);
+  };
+
+  const editQuestion = (question) => {
+    setEditingQuestion(question);
+    setFormData({
+      question_text: question.question_text,
+      options: [...question.options],
+      correct_answer: question.correct_answer,
+      category_id: question.category_id,
+      departamento: question.departamento || 'ventas',
+      rol: question.rol || 'asesor',
+      difficulty: question.difficulty,
+      xp_reward: question.xp_reward
+    });
+    setShowForm(true);
+  };
+
+  const saveQuestion = async (e) => {
     e.preventDefault();
     
-    const { error } = await supabase
-      .from('questions')
-      .insert([formData]);
-    
-    if (!error) {
-      setShowForm(false);
-      resetForm();
-      fetchData();
+    if (editingQuestion) {
+      // Actualizar
+      const { error } = await supabase
+        .from('questions')
+        .update(formData)
+        .eq('id', editingQuestion.id);
+      
+      if (!error) {
+        setShowForm(false);
+        setEditingQuestion(null);
+        fetchData();
+      } else {
+        alert('Error al actualizar: ' + error.message);
+      }
     } else {
-      console.error('Error creating question:', error);
+      // Crear nueva
+      const { error } = await supabase
+        .from('questions')
+        .insert([formData]);
+      
+      if (!error) {
+        setShowForm(false);
+        fetchData();
+      } else {
+        alert('Error al crear: ' + error.message);
+      }
     }
   };
 
-  const handleUpdate = async (e) => {
-    e.preventDefault();
-    
-    const { error } = await supabase
-      .from('questions')
-      .update(formData)
-      .eq('id', editingQuestion.id);
-    
-    if (!error) {
-      setShowForm(false);
-      setEditingQuestion(null);
-      resetForm();
-      fetchData();
-    } else {
-      console.error('Error updating question:', error);
-    }
-  };
-
-  const handleDelete = async (id) => {
+  const deleteQuestion = async (id) => {
     if (!window.confirm('¿Estás seguro de eliminar esta pregunta?')) return;
     
     const { error } = await supabase
@@ -123,8 +178,14 @@ const AdminModal = ({ isOpen, onClose }) => {
     if (!error) {
       fetchData();
     } else {
-      console.error('Error deleting question:', error);
+      alert('Error al eliminar: ' + error.message);
     }
+  };
+
+  const updateOption = (idx, value) => {
+    const newOptions = [...formData.options];
+    newOptions[idx] = value;
+    setFormData({...formData, options: newOptions});
   };
 
   const resetForm = () => {
@@ -133,22 +194,11 @@ const AdminModal = ({ isOpen, onClose }) => {
       options: ['', '', '', ''],
       correct_answer: 0,
       category_id: '',
+      departamento: 'ventas',
+      rol: 'asesor',
       difficulty: 1,
       xp_reward: 10
     });
-  };
-
-  const startEdit = (question) => {
-    setEditingQuestion(question);
-    setFormData({
-      question_text: question.question_text,
-      options: [...question.options],
-      correct_answer: question.correct_answer,
-      category_id: question.category_id,
-      difficulty: question.difficulty,
-      xp_reward: question.xp_reward
-    });
-    setShowForm(true);
   };
 
   // Análisis de usuario
@@ -179,189 +229,136 @@ const AdminModal = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      background: 'rgba(0,0,0,0.5)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000
-    }}>
-      <div style={{
-        background: 'white',
-        borderRadius: '1rem',
-        width: '90%',
-        maxWidth: '1000px',
-        maxHeight: '90vh',
-        overflow: 'auto',
-        padding: '2rem'
-      }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-          <h1 style={{ margin: 0 }}>⚙️ Panel de Administración</h1>
-          <button onClick={onClose} style={{
-            background: 'none',
-            border: 'none',
-            fontSize: '1.5rem',
-            cursor: 'pointer'
-          }}>✕</button>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '2px solid #e5e7eb', paddingBottom: '1rem' }}>
-          <button onClick={() => setActiveTab('dashboard')} style={tabStyle(activeTab === 'dashboard')}>
-            📊 Dashboard
-          </button>
-          <button onClick={() => setActiveTab('questions')} style={tabStyle(activeTab === 'questions')}>
-            📝 Preguntas
-          </button>
-          <button onClick={() => setActiveTab('analytics')} style={tabStyle(activeTab === 'analytics')}>
-            🧠 Análisis
-          </button>
+    <div style={modalOverlayStyle}>
+      <div style={modalContentStyle}>
+        {/* Sidebar */}
+        <div style={sidebarStyle}>
+          <h2 style={{ color: 'white', marginBottom: '2rem' }}>⚙️ Admin</h2>
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <TabButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')}>📊 Dashboard</TabButton>
+            <TabButton active={activeTab === 'questions'} onClick={() => setActiveTab('questions')}>❓ Preguntas ({preguntasFiltradas.length})</TabButton>
+            <TabButton active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')}>🧠 Análisis IA</TabButton>
+          </nav>
+          <button onClick={onClose} style={closeButtonStyle}>✕ Cerrar</button>
         </div>
 
         {/* Content */}
-        {loading ? (
-          <div>Cargando...</div>
-        ) : (
-          <>
-            {activeTab === 'dashboard' && (
-              <DashboardTab stats={stats} />
-            )}
-            {activeTab === 'questions' && (
-              <QuestionsTab 
-                questions={questions}
-                categories={categories}
-                showForm={showForm}
-                setShowForm={setShowForm}
-                formData={formData}
-                setFormData={setFormData}
-                editingQuestion={editingQuestion}
-                setEditingQuestion={setEditingQuestion}
-                handleCreate={handleCreate}
-                handleUpdate={handleUpdate}
-                handleDelete={handleDelete}
-                startEdit={startEdit}
-                resetForm={resetForm}
-              />
-            )}
-            {activeTab === 'analytics' && (
-              <AnalyticsTab stats={stats} analyzeUser={analyzeUser} />
-            )}
-          </>
-        )}
+        <div style={{ flex: 1, padding: '2rem', overflow: 'auto' }}>
+          {loading ? (
+            <div>Cargando...</div>
+          ) : (
+            <>
+              {activeTab === 'dashboard' && <DashboardTab stats={stats} />}
+              {activeTab === 'questions' && (
+                <QuestionsTab 
+                  questions={preguntasFiltradas}
+                  categories={categories}
+                  departamentos={departamentos}
+                  roles={roles}
+                  filtroCategoria={filtroCategoria}
+                  filtroDepartamento={filtroDepartamento}
+                  filtroRol={filtroRol}
+                  onFiltroCategoria={setFiltroCategoria}
+                  onFiltroDepartamento={setFiltroDepartamento}
+                  onFiltroRol={setFiltroRol}
+                  showForm={showForm}
+                  formData={formData}
+                  editingQuestion={editingQuestion}
+                  onNew={newQuestion}
+                  onEdit={editQuestion}
+                  onDelete={deleteQuestion}
+                  onSave={saveQuestion}
+                  onCancel={() => { setShowForm(false); resetForm(); }}
+                  onFormChange={setFormData}
+                  onOptionChange={updateOption}
+                />
+              )}
+              {activeTab === 'analytics' && <AnalyticsTab stats={stats} analyzeUser={analyzeUser} />}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
 };
 
-// Sub-components
+// Sub-componentes
+const TabButton = ({ active, onClick, children }) => (
+  <button onClick={onClick} style={tabButtonStyle(active)}>{children}</button>
+);
+
 const DashboardTab = ({ stats }) => (
   <div>
-    <h2 style={{ marginBottom: '1.5rem' }}>📊 Estadísticas Generales</h2>
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-      <StatCard title="Total Partidas" value={stats?.totalGames || 0} color="#3B82F6" />
-      <StatCard title="Jugadores Activos" value={Object.keys(stats?.users || {}).length} color="#10B981" />
-    </div>
-    
-    <h3 style={{ marginTop: '2rem', marginBottom: '1rem' }}>🏆 Top Jugadores</h3>
-    <div style={{ background: '#f9fafb', borderRadius: '0.5rem', padding: '1rem' }}>
-      {stats?.users && Object.entries(stats.users)
-        .sort(([,a], [,b]) => b.totalXP - a.totalXP)
-        .slice(0, 5)
-        .map(([id, user], idx) => (
-          <div key={id} style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            padding: '0.75rem',
-            borderBottom: '1px solid #e5e7eb'
-          }}>
-            <span>#{idx + 1} {user.name}</span>
-            <span style={{ fontWeight: 'bold', color: '#3B82F6' }}>{user.totalXP} XP</span>
-          </div>
-        ))}
+    <h2 style={{ marginBottom: '1.5rem' }}>📊 Dashboard</h2>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+      <StatCard title="Total Sesiones" value={stats?.totalGames || 0} color="#3B82F6" />
+      <StatCard title="Usuarios Activos" value={Object.keys(stats?.users || {}).length} color="#10B981" />
+      <StatCard title="Preguntas" value={stats?.totalQuestions || 0} color="#F59E0B" />
     </div>
   </div>
 );
 
-const QuestionsTab = ({
-  questions,
-  categories,
-  showForm,
-  setShowForm,
-  formData,
-  setFormData,
-  editingQuestion,
-  setEditingQuestion,
-  handleCreate,
-  handleUpdate,
-  handleDelete,
-  startEdit,
-  resetForm
+const QuestionsTab = ({ 
+  questions, categories, departamentos, roles,
+  filtroCategoria, filtroDepartamento, filtroRol,
+  onFiltroCategoria, onFiltroDepartamento, onFiltroRol,
+  showForm, formData, editingQuestion, onNew, onEdit, onDelete, onSave, onCancel,
+  onFormChange, onOptionChange
 }) => (
   <div>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-      <h2>📝 Gestión de Preguntas</h2>
-      <button 
-        onClick={() => {
-          setEditingQuestion(null);
-          resetForm();
-          setShowForm(!showForm);
-        }}
-        style={{
-          padding: '0.75rem 1.5rem',
-          background: showForm ? '#6b7280' : '#3B82F6',
-          color: 'white',
-          border: 'none',
-          borderRadius: '0.5rem',
-          cursor: 'pointer'
-        }}
-      >
-        {showForm ? 'Cancelar' : '+ Nueva Pregunta'}
-      </button>
-    </div>
+    <h2 style={{ marginBottom: '1rem' }}>❓ Gestión de Preguntas</h2>
+    
+    {/* Filtros */}
+    {!showForm && (
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+        <select value={filtroCategoria} onChange={(e) => onFiltroCategoria(e.target.value)} style={selectStyle}>
+          <option value="todas">📁 Todas las categorías</option>
+          {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+        </select>
+        
+        <select value={filtroDepartamento} onChange={(e) => onFiltroDepartamento(e.target.value)} style={selectStyle}>
+          <option value="todos">🏢 Todos los departamentos</option>
+          {departamentos.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        
+        <select value={filtroRol} onChange={(e) => onFiltroRol(e.target.value)} style={selectStyle}>
+          <option value="todos">👤 Todos los roles</option>
+          {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+        
+        <button onClick={onNew} style={newButtonStyle}>+ Nueva Pregunta</button>
+      </div>
+    )}
 
-    {showForm && (
-      <form onSubmit={editingQuestion ? handleUpdate : handleCreate} style={{
-        background: '#f9fafb',
-        padding: '1.5rem',
-        borderRadius: '0.5rem',
-        marginBottom: '1.5rem'
-      }}>
-        <div style={{ marginBottom: '1rem' }}>
-          <label style={{ display: 'block', marginBottom: '0.5rem' }}>Pregunta:</label>
-          <textarea
+    {showForm ? (
+      <form onSubmit={onSave} style={formContainerStyle}>
+        <h3>{editingQuestion ? '✏️ Editar Pregunta' : '➕ Nueva Pregunta'}</h3>
+        
+        <div style={formGroupStyle}>
+          <label>Pregunta:</label>
+          <textarea 
             value={formData.question_text}
-            onChange={(e) => setFormData({...formData, question_text: e.target.value})}
-            style={{ width: '100%', padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid #e5e7eb' }}
-            rows={3}
+            onChange={(e) => onFormChange({...formData, question_text: e.target.value})}
+            style={{ width: '100%', padding: '0.5rem', minHeight: '80px' }}
             required
           />
         </div>
 
-        <div style={{ marginBottom: '1rem' }}>
-          <label style={{ display: 'block', marginBottom: '0.5rem' }}>Opciones:</label>
+        <div style={formGroupStyle}>
+          <label>Opciones (marca la correcta):</label>
           {formData.options.map((opt, idx) => (
-            <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
               <input
                 type="radio"
-                name="correct"
+                name="correct_answer"
                 checked={formData.correct_answer === idx}
-                onChange={() => setFormData({...formData, correct_answer: idx})}
+                onChange={() => onFormChange({...formData, correct_answer: idx})}
               />
               <input
                 type="text"
                 value={opt}
-                onChange={(e) => {
-                  const newOptions = [...formData.options];
-                  newOptions[idx] = e.target.value;
-                  setFormData({...formData, options: newOptions});
-                }}
-                style={{ flex: 1, padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid #e5e7eb' }}
+                onChange={(e) => onOptionChange(idx, e.target.value)}
+                style={{ flex: 1, padding: '0.5rem' }}
                 placeholder={`Opción ${String.fromCharCode(65 + idx)}`}
                 required
               />
@@ -371,30 +368,70 @@ const QuestionsTab = ({
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem' }}>Categoría:</label>
+            <label>Categoría:</label>
             <select
               value={formData.category_id}
-              onChange={(e) => setFormData({...formData, category_id: e.target.value})}
-              style={{ width: '100%', padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid #e5e7eb' }}
+              onChange={(e) => onFormChange({...formData, category_id: e.target.value})}
+              style={{ width: '100%', padding: '0.5rem' }}
               required
             >
-              <option value="">Seleccionar...</option>
               {categories.map(cat => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </select>
           </div>
+          
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem' }}>Dificultad:</label>
+            <label>Departamento:</label>
+            <select
+              value={formData.departamento}
+              onChange={(e) => onFormChange({...formData, departamento: e.target.value})}
+              style={{ width: '100%', padding: '0.5rem' }}
+            >
+              {departamentos.map(d => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+          <div>
+            <label>Rol:</label>
+            <select
+              value={formData.rol}
+              onChange={(e) => onFormChange({...formData, rol: e.target.value})}
+              style={{ width: '100%', padding: '0.5rem' }}
+            >
+              {roles.map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div>
+            <label>Dificultad:</label>
             <select
               value={formData.difficulty}
-              onChange={(e) => setFormData({...formData, difficulty: parseInt(e.target.value)})}
-              style={{ width: '100%', padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid #e5e7eb' }}
+              onChange={(e) => onFormChange({...formData, difficulty: parseInt(e.target.value)})}
+              style={{ width: '100%', padding: '0.5rem' }}
             >
               <option value={1}>⭐ Fácil</option>
               <option value={2}>⭐⭐ Medio</option>
               <option value={3}>⭐⭐⭐ Difícil</option>
             </select>
+          </div>
+          
+          <div>
+            <label>XP Recompensa:</label>
+            <input
+              type="number"
+              value={formData.xp_reward}
+              onChange={(e) => onFormChange({...formData, xp_reward: parseInt(e.target.value)})}
+              style={{ width: '100%', padding: '0.5rem' }}
+              min="5"
+              max="100"
+            />
           </div>
         </div>
 
@@ -402,50 +439,48 @@ const QuestionsTab = ({
           <button type="submit" style={saveButtonStyle}>
             {editingQuestion ? '💾 Actualizar' : '💾 Guardar'}
           </button>
-          <button 
-            type="button" 
-            onClick={() => {
-              setShowForm(false);
-              setEditingQuestion(null);
-              resetForm();
-            }}
-            style={cancelButtonStyle}
-          >
+          <button type="button" onClick={onCancel} style={cancelButtonStyle}>
             ❌ Cancelar
           </button>
         </div>
       </form>
-    )}
-
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead>
-        <tr style={{ background: '#f3f4f6' }}>
-          <th style={thStyle}>Pregunta</th>
-          <th style={thStyle}>Categoría</th>
-          <th style={thStyle}>Dif.</th>
-          <th style={thStyle}>XP</th>
-          <th style={thStyle}>Acciones</th>
-        </tr>
-      </thead>
-      <tbody>
-        {questions.map(q => (
-          <tr key={q.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-            <td style={tdStyle}>{q.question_text.substring(0, 60)}...</td>
-            <td style={tdStyle}>{q.categories?.name}</td>
-            <td style={tdStyle}>{'⭐'.repeat(q.difficulty)}</td>
-            <td style={tdStyle}>{q.xp_reward}</td>
-            <td style={tdStyle}>
-              <button onClick={() => startEdit(q)} style={actionButtonStyle('#3B82F6')}>✏️</button>
-              <button onClick={() => handleDelete(q.id)} style={actionButtonStyle('#EF4444')}>🗑️</button>
-            </td>
+    ) : (
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: '#f3f4f6' }}>
+            <th style={thStyle}>Pregunta</th>
+            <th style={thStyle}>Categoría</th>
+            <th style={thStyle}>Depto</th>
+            <th style={thStyle}>Rol</th>
+            <th style={thStyle}>Dif.</th>
+            <th style={thStyle}>XP</th>
+            <th style={thStyle}>Acciones</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {questions.map(q => (
+            <tr key={q.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+              <td style={tdStyle}>{q.question_text.substring(0, 50)}...</td>
+              <td style={tdStyle}>{q.categories?.name}</td>
+              <td style={tdStyle}>
+                <span style={deptBadgeStyle(q.departamento)}>{q.departamento}</span>
+              </td>
+              <td style={tdStyle}>{q.rol === 'gerente' ? '👔' : q.rol === 'supervisor' ? '👨‍💻' : '🎧'} {q.rol}</td>
+              <td style={tdStyle}>{'⭐'.repeat(q.difficulty)}</td>
+              <td style={tdStyle}>{q.xp_reward}</td>
+              <td style={tdStyle}>
+                <button onClick={() => onEdit(q)} style={actionButtonStyle('#3B82F6')}>✏️</button>
+                <button onClick={() => onDelete(q.id)} style={actionButtonStyle('#EF4444')}>🗑️</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
   </div>
 );
 
-// ✅ ANALYTICS TAB CORREGIDO - SIN COLUMNA 'DEPARTMENT'
+// ✅ ANALYTICS TAB CON LOADEMPLOYEES CORREGIDO
 const AnalyticsTab = ({ stats, analyzeUser }) => {
   const [showEmployees, setShowEmployees] = useState(false);
   const [employees, setEmployees] = useState([]);
@@ -591,15 +626,57 @@ const AnalyticsTab = ({ stats, analyzeUser }) => {
 };
 
 // Styles
-const tabStyle = (active) => ({
-  padding: '0.75rem 1.5rem',
+const modalOverlayStyle = {
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  background: 'rgba(0,0,0,0.5)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000
+};
+
+const modalContentStyle = {
+  background: 'white',
+  borderRadius: '1rem',
+  width: '90%',
+  maxWidth: '1200px',
+  height: '90vh',
+  display: 'flex',
+  overflow: 'hidden'
+};
+
+const sidebarStyle = {
+  width: '250px',
+  background: '#1f2937',
+  padding: '1.5rem',
+  display: 'flex',
+  flexDirection: 'column'
+};
+
+const tabButtonStyle = (active) => ({
+  padding: '0.75rem 1rem',
+  textAlign: 'left',
   background: active ? '#3B82F6' : 'transparent',
-  color: active ? 'white' : '#374151',
+  color: 'white',
   border: 'none',
   borderRadius: '0.5rem',
   cursor: 'pointer',
-  fontWeight: active ? 'bold' : 'normal'
+  transition: 'all 0.2s'
 });
+
+const closeButtonStyle = {
+  marginTop: 'auto',
+  padding: '0.75rem',
+  background: '#374151',
+  color: 'white',
+  border: 'none',
+  borderRadius: '0.5rem',
+  cursor: 'pointer'
+};
 
 const StatCard = ({ title, value, color }) => (
   <div style={{
@@ -612,6 +689,35 @@ const StatCard = ({ title, value, color }) => (
     <p style={{ fontSize: '2rem', fontWeight: 'bold', color: color }}>{value}</p>
   </div>
 );
+
+const selectStyle = {
+  padding: '0.5rem 1rem',
+  borderRadius: '0.5rem',
+  border: '1px solid #e5e7eb',
+  background: 'white',
+  cursor: 'pointer'
+};
+
+const newButtonStyle = {
+  padding: '0.75rem 1.5rem',
+  background: '#10B981',
+  color: 'white',
+  border: 'none',
+  borderRadius: '0.5rem',
+  cursor: 'pointer',
+  marginLeft: 'auto'
+};
+
+const formContainerStyle = {
+  background: '#f9fafb',
+  padding: '1.5rem',
+  borderRadius: '0.75rem',
+  marginBottom: '1rem'
+};
+
+const formGroupStyle = {
+  marginBottom: '1rem'
+};
 
 const thStyle = { padding: '1rem', textAlign: 'left', fontWeight: '600', background: '#f3f4f6' };
 const tdStyle = { padding: '1rem' };
@@ -643,6 +749,19 @@ const cancelButtonStyle = {
   borderRadius: '0.5rem',
   cursor: 'pointer'
 };
+
+const deptBadgeStyle = (dept) => ({
+  background: {
+    ventas: '#3B82F6',
+    garantia: '#F59E0B',
+    atencion: '#10B981',
+    seguridad: '#EF4444'
+  }[dept] || '#6b7280',
+  color: 'white',
+  padding: '0.25rem 0.5rem',
+  borderRadius: '0.25rem',
+  fontSize: '0.75rem'
+});
 
 const analysisCardStyle = (score) => ({
   background: '#f9fafb',
