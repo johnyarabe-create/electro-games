@@ -234,18 +234,6 @@ const AdminModal = ({ isOpen, onClose }) => {
     setFormData({ ...formData, options: newOptions });
   };
 
-  const analyzeUser = (userId) => {
-    const user = stats?.users[userId];
-    if (!user) return null;
-    const accuracy = (user.correctAnswers / user.totalQuestions) * 100;
-    return {
-      score: accuracy.toFixed(1),
-      level: accuracy >= 80 ? '⭐⭐⭐ Excelente' : accuracy >= 60 ? '⭐⭐ Bueno' : '⭐ Necesita Mejora',
-      recommendations: accuracy < 60 ? ['📚 Reforzar capacitación', '🎯 Practicar más'] : 
-                      accuracy < 80 ? ['💡 Mejorar técnica de cierre'] : ['🌟 Mantener excelencia']
-    };
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -314,7 +302,14 @@ const AdminModal = ({ isOpen, onClose }) => {
                   onDeptoFormChange={setDeptoForm}
                 />
               )}
-              {activeTab === 'analytics' && <AnalyticsTab stats={stats} analyzeUser={analyzeUser} />}
+              {activeTab === 'analytics' && (
+                <AnalyticsTab 
+                  stats={stats} 
+                  questions={questions}
+                  categories={categories}
+                  departamentos={departamentos}
+                />
+              )}
             </>
           )}
         </div>
@@ -323,6 +318,7 @@ const AdminModal = ({ isOpen, onClose }) => {
   );
 };
 
+// Sub-componentes
 const TabButton = ({ active, onClick, children }) => (
   <button onClick={onClick} style={tabButtonStyle(active)}>{children}</button>
 );
@@ -412,7 +408,7 @@ const QuestionsTab = ({
           </div>
         </div>
 
-        {/* TIPO DE PREGUNTA - NUEVO */}
+        {/* TIPO DE PREGUNTA */}
         <div style={{ marginBottom: '1rem' }}>
           <label>Tipo de pregunta:</label>
           <select 
@@ -425,7 +421,7 @@ const QuestionsTab = ({
           </select>
         </div>
 
-        {/* RESPUESTA ESPERADA - NUEVO */}
+        {/* RESPUESTA ESPERADA */}
         {(formData.question_type || 'multiple_choice') === 'open_text' && (
           <div style={{ marginBottom: '1rem' }}>
             <label>Palabras clave esperadas (separadas por coma):</label>
@@ -439,7 +435,7 @@ const QuestionsTab = ({
           </div>
         )}
 
-        {/* OPCIONES - Solo si es multiple_choice */}
+        {/* OPCIONES */}
         {(formData.question_type || 'multiple_choice') === 'multiple_choice' && (
           <div style={{ marginBottom: '1rem' }}>
             <label>Opciones (marca la correcta):</label>
@@ -602,29 +598,252 @@ const EstructuraTab = ({
   </div>
 );
 
-const AnalyticsTab = ({ stats, analyzeUser }) => (
-  <div>
-    <h2 style={{ marginBottom: '1rem' }}>🧠 Análisis de IA</h2>
-    {stats?.users && Object.entries(stats.users).map(([userId, user]) => {
-      const analysis = analyzeUser(userId);
-      if (!analysis) return null;
-      return (
-        <div key={userId} style={analysisCardStyle(analysis.score)}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3>{user.name}</h3>
-            <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: analysis.score >= 80 ? '#10B981' : analysis.score >= 60 ? '#F59E0B' : '#EF4444' }}>{analysis.score}%</span>
+// ANALYTICS TAB CON IA
+const AnalyticsTab = ({ stats, questions, categories, departamentos }) => {
+  const [analysisData, setAnalysisData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAnalysisData();
+  }, []);
+
+  const fetchAnalysisData = async () => {
+    const { data: sessionsData } = await supabase
+      .from('game_sessions')
+      .select('*, profiles(first_name, last_name)')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    const analysis = processAnalysisData(sessionsData || [], questions);
+    setAnalysisData(analysis);
+    setLoading(false);
+  };
+
+  const processAnalysisData = (sessions, allQuestions) => {
+    const stats = {
+      totalGames: sessions.length,
+      openTextStats: {
+        total: 0,
+        correct: 0,
+        incorrect: 0,
+        byCategory: {},
+        byDepartment: {},
+        weakAreas: []
+      },
+      multipleChoiceStats: {
+        total: 0,
+        correct: 0,
+        byCategory: {}
+      },
+      recommendations: []
+    };
+
+    sessions.forEach(session => {
+      const answers = session.answers || [];
+      
+      answers.forEach(answer => {
+        const question = allQuestions.find(q => q.id === answer.question_id);
+        if (!question) return;
+
+        if (answer.question_type === 'open_text') {
+          stats.openTextStats.total++;
+          
+          if (answer.is_correct) {
+            stats.openTextStats.correct++;
+          } else {
+            stats.openTextStats.incorrect++;
+            
+            const catName = question.categories?.name || 'Sin categoría';
+            if (!stats.openTextStats.byCategory[catName]) {
+              stats.openTextStats.byCategory[catName] = { errors: 0, total: 0, questions: [] };
+            }
+            stats.openTextStats.byCategory[catName].errors++;
+            stats.openTextStats.byCategory[catName].total++;
+            stats.openTextStats.byCategory[catName].questions.push({
+              question: question.question_text,
+              userAnswer: answer.selected_answer,
+              expected: question.expected_answer
+            });
+
+            const deptName = departamentos.find(d => d.id === question.department_id)?.name || 'General';
+            if (!stats.openTextStats.byDepartment[deptName]) {
+              stats.openTextStats.byDepartment[deptName] = { errors: 0, total: 0 };
+            }
+            stats.openTextStats.byDepartment[deptName].errors++;
+          }
+        } else {
+          stats.multipleChoiceStats.total++;
+          if (answer.is_correct) stats.multipleChoiceStats.correct++;
+        }
+      });
+    });
+
+    stats.openTextStats.weakAreas = Object.entries(stats.openTextStats.byCategory)
+      .map(([category, data]) => ({
+        category,
+        errorRate: data.total > 0 ? (data.errors / data.total * 100).toFixed(1) : 0,
+        totalErrors: data.errors,
+        questions: data.questions.slice(0, 3)
+      }))
+      .sort((a, b) => b.errorRate - a.errorRate)
+      .slice(0, 5);
+
+    stats.recommendations = generateRecommendations(stats);
+    return stats;
+  };
+
+  const generateRecommendations = (stats) => {
+    const recommendations = [];
+
+    if (stats.openTextStats.weakAreas.length > 0) {
+      const topWeakArea = stats.openTextStats.weakAreas[0];
+      
+      if (parseFloat(topWeakArea.errorRate) > 50) {
+        recommendations.push({
+          priority: '🔴 ALTA',
+          area: topWeakArea.category,
+          message: `Los empleados tienen dificultades en ${topWeakArea.category} (${topWeakArea.errorRate}% de error). Se recomienda capacitación intensiva.`,
+          action: 'Organizar taller práctico con casos reales'
+        });
+      } else if (parseFloat(topWeakArea.errorRate) > 30) {
+        recommendations.push({
+          priority: '🟡 MEDIA',
+          area: topWeakArea.category,
+          message: `Se detectan oportunidades de mejora en ${topWeakArea.category} (${topWeakArea.errorRate}% de error).`,
+          action: 'Reforzar conceptos con material de estudio'
+        });
+      }
+    }
+
+    const openTextAccuracy = stats.openTextStats.total > 0 
+      ? (stats.openTextStats.correct / stats.openTextStats.total * 100).toFixed(1)
+      : 0;
+
+    if (openTextAccuracy < 60 && stats.openTextStats.total > 5) {
+      recommendations.push({
+        priority: '🔴 ALTA',
+        area: 'Comunicación',
+        message: `Bajo desempeño en respuestas abiertas (${openTextAccuracy}% de acierto). Los empleados necesitan mejorar su capacidad de argumentación.`,
+        action: 'Implementar role-playing y práctica de ventas'
+      });
+    }
+
+    Object.entries(stats.openTextStats.byDepartment).forEach(([dept, data]) => {
+      if (data.errors > 3) {
+        recommendations.push({
+          priority: '🟡 MEDIA',
+          area: dept,
+          message: `El departamento de ${dept} acumula ${data.errors} errores en respuestas abiertas.`,
+          action: `Capacitación específica para el equipo de ${dept}`
+        });
+      }
+    });
+
+    return recommendations;
+  };
+
+  if (loading) return <div>Cargando análisis...</div>;
+  if (!analysisData) return <div>No hay datos suficientes</div>;
+
+  return (
+    <div>
+      <h2 style={{ marginBottom: '1.5rem' }}>🧠 Análisis de IA - Detección de Áreas Débiles</h2>
+      
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
+        <StatCard 
+          title="Precisión Resp. Abiertas" 
+          value={`${analysisData.openTextStats.total > 0 
+            ? (analysisData.openTextStats.correct / analysisData.openTextStats.total * 100).toFixed(1) 
+            : 0}%`} 
+          color={analysisData.openTextStats.correct / analysisData.openTextStats.total > 0.6 ? '#10B981' : '#EF4444'} 
+        />
+        <StatCard 
+          title="Respuestas Analizadas" 
+          value={analysisData.openTextStats.total} 
+          color="#3B82F6" 
+        />
+        <StatCard 
+          title="Áreas Críticas" 
+          value={analysisData.openTextStats.weakAreas.length} 
+          color="#F59E0B" 
+        />
+      </div>
+
+      <div style={{ marginBottom: '2rem' }}>
+        <h3 style={{ marginBottom: '1rem', color: '#EF4444' }}>⚠️ Áreas que Requieren Capacitación</h3>
+        {analysisData.openTextStats.weakAreas.map((area, idx) => (
+          <div key={idx} style={{ 
+            background: '#FEE2E2', 
+            padding: '1rem', 
+            borderRadius: '0.5rem', 
+            marginBottom: '1rem',
+            borderLeft: '4px solid #EF4444'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <h4 style={{ margin: 0 }}>{idx + 1}. {area.category}</h4>
+              <span style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#EF4444' }}>{area.errorRate}% error</span>
+            </div>
+            <p style={{ margin: '0.5rem 0', color: '#6b7280' }}>{area.totalErrors} respuestas incorrectas</p>
+            
+            {area.questions.length > 0 && (
+              <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'white', borderRadius: '0.25rem' }}>
+                <p style={{ fontSize: '0.875rem', margin: '0 0 0.5rem 0', fontWeight: 'bold' }}>Ejemplos de errores:</p>
+                {area.questions.map((q, i) => (
+                  <div key={i} style={{ fontSize: '0.75rem', marginBottom: '0.25rem', color: '#6b7280' }}>
+                    <strong>P:</strong> {q.question.substring(0, 60)}...<br/>
+                    <strong>R usuario:</strong> {q.userAnswer || '(vacío)'}<br/>
+                    <strong>Esperado:</strong> {q.expected}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <p><strong>{analysis.level}</strong> | Juegos: {user.totalGames}</p>
-          {analysis.recommendations.length > 0 && (
-            <ul style={{ margin: '0.5rem 0 0 1.25rem', fontSize: '0.875rem' }}>
-              {analysis.recommendations.map((rec, idx) => <li key={idx}>{rec}</li>)}
-            </ul>
-          )}
+        ))}
+      </div>
+
+      <div style={{ marginBottom: '2rem' }}>
+        <h3 style={{ marginBottom: '1rem', color: '#3B82F6' }}>💡 Recomendaciones de Capacitación</h3>
+        {analysisData.recommendations.map((rec, idx) => (
+          <div key={idx} style={{ 
+            background: rec.priority.includes('🔴') ? '#FEE2E2' : '#FEF3C7', 
+            padding: '1rem', 
+            borderRadius: '0.5rem', 
+            marginBottom: '0.75rem',
+            borderLeft: `4px solid ${rec.priority.includes('🔴') ? '#EF4444' : '#F59E0B'}`
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+              <span style={{ fontSize: '1.25rem' }}>{rec.priority}</span>
+              <strong>{rec.area}</strong>
+            </div>
+            <p style={{ margin: '0.25rem 0', fontSize: '0.875rem' }}>{rec.message}</p>
+            <p style={{ margin: '0.25rem 0', fontSize: '0.875rem', color: '#059669', fontWeight: '600' }}>
+              ✅ Acción: {rec.action}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div>
+        <h3 style={{ marginBottom: '1rem' }}>🏢 Desempeño por Departamento</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+          {Object.entries(analysisData.openTextStats.byDepartment).map(([dept, data]) => (
+            <div key={dept} style={{ 
+              background: data.errors > 5 ? '#FEE2E2' : '#F3F4F6', 
+              padding: '1rem', 
+              borderRadius: '0.5rem',
+              borderLeft: `4px solid ${data.errors > 5 ? '#EF4444' : '#10B981'}`
+            }}>
+              <h4 style={{ margin: '0 0 0.5rem 0' }}>{dept}</h4>
+              <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 'bold', color: data.errors > 5 ? '#EF4444' : '#10B981' }}>
+                {data.errors} <span style={{ fontSize: '0.875rem', fontWeight: 'normal', color: '#6b7280' }}>errores</span>
+              </p>
+            </div>
+          ))}
         </div>
-      );
-    })}
-  </div>
-);
+      </div>
+    </div>
+  );
+};
 
 // Estilos
 const modalOverlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
@@ -641,6 +860,5 @@ const cancelButtonStyle = { padding: '0.75rem 1.5rem', background: '#6b7280', co
 const thStyle = { padding: '1rem', textAlign: 'left', fontWeight: '600', background: '#f3f4f6' };
 const tdStyle = { padding: '1rem' };
 const actionButtonStyle = (color) => ({ padding: '0.5rem', marginRight: '0.5rem', background: color, color: 'white', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' });
-const analysisCardStyle = (score) => ({ background: '#f9fafb', padding: '1.5rem', borderRadius: '0.75rem', marginBottom: '1rem', borderLeft: '4px solid ' + (score >= 80 ? '#10B981' : score >= 60 ? '#F59E0B' : '#EF4444') });
 
 export default AdminModal;
